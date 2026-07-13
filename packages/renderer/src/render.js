@@ -114,8 +114,8 @@ function renderList(data, { x, y, w }) {
   const rows = Array.isArray(data) ? data.slice(0, 7) : [];
   if (rows.length === 0) return renderText("No rows", { x, y, w, h: 80 });
   return rows.map((row, index) => {
-    const label = row.name ?? row.title ?? row.summary ?? row.date ?? row.startsAt ?? String(row);
-    const value = row.minutes !== undefined ? `${row.minutes} min` : row.highF !== undefined && row.lowF !== undefined ? `${row.lowF}-${row.highF}F` : row.number !== undefined ? `#${row.number}` : row.value ?? row.location ?? row.author ?? "";
+    const label = row.name ?? row.title ?? row.summary ?? row.entityId ?? row.date ?? row.startsAt ?? String(row);
+    const value = row.minutes !== undefined ? `${row.minutes} min` : row.highF !== undefined && row.lowF !== undefined ? `${row.lowF}-${row.highF}F` : row.number !== undefined ? `#${row.number}` : row.state !== undefined ? `${row.state}${row.unit ?? ""}` : row.value ?? row.location ?? row.author ?? "";
     return `<text x="${x + 16}" y="${y + 62 + index * 28}" class="text">${escapeXml(label)}</text>
     <text x="${x + w - 18}" y="${y + 62 + index * 28}" text-anchor="end" class="small">${escapeXml(value)}</text>`;
   }).join("\n");
@@ -213,10 +213,23 @@ export function writeRenderArtifact({ artifactId, definition, revision, snapshot
   const svgPath = path.join(dir, `${id}.svg`);
   const pngPath = path.join(dir, `${id}.png`);
   const pgmPath = path.join(dir, `${id}.pgm`);
+  const tempSuffix = `.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const svgTempPath = path.join(dir, `${id}${tempSuffix}.svg`);
+  const pngTempPath = path.join(dir, `${id}${tempSuffix}.png`);
+  const pgmTempPath = path.join(dir, `${id}${tempSuffix}.pgm`);
   const svg = renderDashboardSvg(definition, snapshots, resolvedProfile);
-  fs.writeFileSync(svgPath, svg);
-  convertSvgToPng(svgPath, pngPath, resolvedProfile);
-  convertPngToPgm(pngPath, pgmPath);
+  try {
+    fs.writeFileSync(svgTempPath, svg);
+    convertSvgToPng(svgTempPath, pngTempPath, resolvedProfile);
+    convertPngToPgm(pngTempPath, pgmTempPath);
+    fs.renameSync(svgTempPath, svgPath);
+    fs.renameSync(pngTempPath, pngPath);
+    fs.renameSync(pgmTempPath, pgmPath);
+  } finally {
+    for (const tempPath of [svgTempPath, pngTempPath, pgmTempPath]) {
+      if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { force: true });
+    }
+  }
   const image = fs.readFileSync(pngPath);
   return {
     id,

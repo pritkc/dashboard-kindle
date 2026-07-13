@@ -98,10 +98,11 @@ Recommended first sources:
 * **Weather**: use `{ "mode": "fixture", "locationName": "San Francisco", "units": "imperial" }` for an offline test, or switch to `"mode": "open-meteo"` and provide `latitude`, `longitude`, and `timezone`.
 * **iCalendar URL**: use `{ "url": "fixture://calendar", "maxEvents": 8 }` for an offline test, or provide a public `.ics` URL. Private network calendar URLs are blocked unless explicitly allowed.
 * **GitHub repository**: use `{ "mode": "fixture", "includeIssues": true, "includePullRequests": true }` for an offline test. For a real repository, use `{ "mode": "api", "owner": "OWNER", "repo": "REPO", "includeIssues": true, "includePullRequests": true }`. Add `token` only for private repositories or higher rate limits; it is redacted from public state.
+* **Home Assistant states**: use `{ "mode": "fixture", "maxEntities": 12 }` for an offline smart-home dashboard. For a real Home Assistant instance, create a Long-Lived Access Token in Home Assistant, then use `{ "mode": "api", "baseUrl": "http://HOME_ASSISTANT_IP:8123", "token": "TOKEN", "entityIds": ["sensor.living_room_temperature", "lock.front_door"], "allowPrivateNetwork": true }`. Only enable private-network access for a Home Assistant server you control.
 
 ## 5. Create a Dashboard
 
-Use **Templates** in the UI for a no-code start. Current templates include blank, clock/status, work/activity, news/RSS, clock/weather, calendar-day, and GitHub status layouts. After creating a dashboard:
+Use **Templates** in the UI for a no-code start. Current templates include blank, clock/status, work/activity, news/RSS, clock/weather, calendar-day, GitHub status, and Home Assistant status layouts. After creating a dashboard:
 
 1. Select it in the dashboard dropdown.
 2. Click **Render** to generate the processed PNG preview.

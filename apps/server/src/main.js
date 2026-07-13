@@ -657,6 +657,23 @@ function dashboardTemplates() {
           { id: "updated", type: "status", title: "Last updated", x: 24, y: 442, w: 752, h: 114, sourceId: "github", expression: "$.repository.updatedAt" }
         ]
       }
+    },
+    {
+      id: "home-assistant-status",
+      name: "Home Assistant status",
+      description: "Smart-home summary with selected entity states and unavailable count.",
+      definition: {
+        name: "Home Assistant status",
+        profile,
+        widgets: [
+          { id: "clock", type: "clock", title: "Now", x: 24, y: 24, w: 220, h: 150, sourceId: "manual", expression: "$" },
+          { id: "summary", type: "alert", title: "Home", x: 268, y: 24, w: 508, h: 150, sourceId: "homeassistant", expression: "$.summary.message" },
+          { id: "unavailable", type: "metric", title: "Unavailable", x: 24, y: 198, w: 220, h: 150, sourceId: "homeassistant", expression: "$.summary.unavailable", suffix: "" },
+          { id: "on", type: "metric", title: "On", x: 268, y: 198, w: 220, h: 150, sourceId: "homeassistant", expression: "$.summary.on", suffix: "" },
+          { id: "entities", type: "list", title: "Entities", x: 512, y: 198, w: 264, h: 220, sourceId: "homeassistant", expression: "$.entities" },
+          { id: "updated", type: "status", title: "Updated", x: 24, y: 442, w: 752, h: 114, sourceId: "homeassistant", expression: "$.summary.updatedAt" }
+        ]
+      }
     }
   ];
 }

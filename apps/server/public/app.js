@@ -512,6 +512,7 @@ function defaultConnectorConfig(manifest) {
   if (manifest.id === "weather.open-meteo") return { mode: "fixture", locationName: "San Francisco", units: "imperial" };
   if (manifest.id === "calendar.ics") return { url: "fixture://calendar", maxEvents: 8 };
   if (manifest.id === "github.repo") return { mode: "fixture", includeIssues: true, includePullRequests: true };
+  if (manifest.id === "homeassistant.states") return { mode: "fixture", maxEntities: 12 };
   const config = {};
   for (const [key, definition] of Object.entries(manifest.configSchema?.properties ?? {})) {
     if (!(manifest.configSchema?.required ?? []).includes(key)) continue;

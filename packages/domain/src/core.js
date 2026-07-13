@@ -307,6 +307,28 @@ function connectorManifests() {
       },
       secretFields: ["token"]
     },
+    "homeassistant.states": {
+      ...base,
+      id: "homeassistant.states",
+      version: "1.0.0",
+      displayName: "Home Assistant states",
+      description: "Fetches selected Home Assistant entity states through the REST API, or fixture smart-home data offline.",
+      executionLocation: "server",
+      outputSchemaVersion: "1.0.0",
+      configSchema: {
+        type: "object",
+        properties: {
+          mode: { enum: ["fixture", "api"] },
+          baseUrl: { type: "string" },
+          token: { type: "string" },
+          entityIds: { type: "array", items: { type: "string" } },
+          maxEntities: { type: "number" },
+          allowPrivateNetwork: { type: "boolean" }
+        },
+        required: ["mode"]
+      },
+      secretFields: ["token"]
+    },
     "codexbar.usage": {
       ...base,
       id: "codexbar.usage",
@@ -340,6 +362,7 @@ function seedConnectorInstances() {
     weather: { id: "weather", connectorId: "weather.open-meteo", name: "Weather fixture", config: { mode: "fixture", locationName: "San Francisco", units: "imperial" }, validForSeconds: 900 },
     calendar: { id: "calendar", connectorId: "calendar.ics", name: "Calendar fixture", config: { url: "fixture://calendar", maxEvents: 8 }, validForSeconds: 900 },
     github: { id: "github", connectorId: "github.repo", name: "GitHub fixture", config: { mode: "fixture", includeIssues: true, includePullRequests: true }, validForSeconds: 900 },
+    homeassistant: { id: "homeassistant", connectorId: "homeassistant.states", name: "Home Assistant fixture", config: { mode: "fixture", maxEntities: 12 }, validForSeconds: 300 },
     manual: { id: "manual", connectorId: "static.manual", name: "Manual status", config: { payload: { metric: 73, alert: "All sample sources are healthy" } }, validForSeconds: 1800 }
   };
 }

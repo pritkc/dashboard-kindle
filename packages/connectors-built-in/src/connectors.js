@@ -37,6 +37,8 @@ async function collectPayload(instance, options) {
       return collectCalendar(instance);
     case "github.repo":
       return collectGitHubRepo(instance);
+    case "homeassistant.states":
+      return collectHomeAssistantStates(instance);
     case "local.command.json":
       return {
         status: "blocked",
@@ -141,6 +143,23 @@ async function collectGitHubRepo(instance) {
   return normalizeGitHubPayload(repository, issues, pullRequests);
 }
 
+async function collectHomeAssistantStates(instance) {
+  const { mode = "api", baseUrl, token, entityIds = [], maxEntities = 12, allowPrivateNetwork = false } = instance.config;
+  if (mode === "fixture") return readJson(repoPath("data/fixtures/home-assistant.json"), {});
+  if (!baseUrl) throw new Error("Home Assistant connector requires baseUrl in api mode.");
+  if (!token) throw new Error("Home Assistant connector requires a long-lived access token in api mode.");
+  if (!allowPrivateNetwork && isPrivateNetworkUrl(baseUrl)) {
+    throw new Error("Blocked private-network Home Assistant target. Enable allowPrivateNetwork only for a trusted local instance.");
+  }
+  const root = String(baseUrl).replace(/\/+$/, "");
+  const headers = homeAssistantHeaders(token);
+  const requestedEntityIds = Array.isArray(entityIds) ? entityIds.filter(Boolean).slice(0, Number(maxEntities) || 12) : [];
+  const states = requestedEntityIds.length
+    ? await Promise.all(requestedEntityIds.map(async (entityId) => JSON.parse(await fetchLimited(`${root}/api/states/${encodeURIComponent(entityId)}`, headers, instance.timeoutMs))))
+    : JSON.parse(await fetchLimited(`${root}/api/states`, headers, instance.timeoutMs)).slice(0, Number(maxEntities) || 12);
+  return normalizeHomeAssistantPayload(states, { baseUrl: root });
+}
+
 async function fetchCalendarText(url, allowPrivateNetwork, timeoutMs) {
   if (!allowPrivateNetwork && isPrivateNetworkUrl(url)) {
     throw new Error("Blocked private-network calendar target.");
@@ -175,6 +194,14 @@ function githubHeaders(token) {
   };
 }
 
+function homeAssistantHeaders(token) {
+  return {
+    accept: "application/json",
+    "content-type": "application/json",
+    authorization: `Bearer ${token}`
+  };
+}
+
 function normalizeGitHubPayload(repository, issues, pullRequests) {
   return {
     repository: {
@@ -202,6 +229,39 @@ function normalizeGitHubPayload(repository, issues, pullRequests) {
       url: pullRequest.html_url
     })),
     fetchedAt: new Date().toISOString()
+  };
+}
+
+function normalizeHomeAssistantPayload(states, { baseUrl }) {
+  const entities = states.map((state) => {
+    const domain = String(state.entity_id ?? "").split(".")[0] || "entity";
+    const attributes = state.attributes ?? {};
+    return {
+      entityId: state.entity_id,
+      domain,
+      name: attributes.friendly_name ?? state.entity_id,
+      state: String(state.state ?? ""),
+      unit: attributes.unit_of_measurement ?? "",
+      deviceClass: attributes.device_class,
+      lastChanged: state.last_changed,
+      lastUpdated: state.last_updated
+    };
+  });
+  const unavailable = entities.filter((entity) => ["unavailable", "unknown"].includes(entity.state)).length;
+  const on = entities.filter((entity) => entity.state === "on").length;
+  return {
+    home: {
+      baseUrl,
+      entityCount: entities.length
+    },
+    summary: {
+      message: unavailable ? `${unavailable} unavailable of ${entities.length} entities` : `${entities.length} entities reporting normally`,
+      total: entities.length,
+      on,
+      unavailable,
+      updatedAt: new Date().toISOString()
+    },
+    entities
   };
 }
 

@@ -293,7 +293,7 @@ test("dashboard management supports duplicate, archive, export, import, and safe
   assert.equal(dashboards.some((dashboard) => dashboard.id === imported.dashboard.id), true);
 });
 
-test("weather, calendar, GitHub, and authenticated HTTP source setup works without exposing secrets", async (t) => {
+test("weather, calendar, GitHub, Home Assistant, and authenticated HTTP source setup works without exposing secrets", async (t) => {
   const state = loadState();
   const server = createAppServer(state);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -336,6 +336,26 @@ test("weather, calendar, GitHub, and authenticated HTTP source setup works witho
   });
   assert.equal(github.source.config.token, "[REDACTED]");
 
+  const homeAssistantTest = await postJson(`${base}/api/v1/sources/test`, {
+    connectorId: "homeassistant.states",
+    config: { mode: "fixture", maxEntities: 12 }
+  });
+  assert.ok(homeAssistantTest.fields.some((field) => field.path === "$.summary.unavailable"));
+  assert.ok(homeAssistantTest.fields.some((field) => field.path === "$.entities"));
+  assert.equal(homeAssistantTest.snapshot.payload.entities[0].entityId, "sensor.living_room_temperature");
+
+  const homeAssistant = await postJson(`${base}/api/v1/sources`, {
+    id: `homeassistant-${suffix}`,
+    connectorId: "homeassistant.states",
+    name: "Home Assistant fixture with token",
+    config: {
+      mode: "fixture",
+      token: "fake-home-assistant-token",
+      maxEntities: 12
+    }
+  });
+  assert.equal(homeAssistant.source.config.token, "[REDACTED]");
+
   const http = await postJson(`${base}/api/v1/sources`, {
     id: `auth-http-${suffix}`,
     connectorId: "http.json",
@@ -352,6 +372,7 @@ test("weather, calendar, GitHub, and authenticated HTTP source setup works witho
   assert.ok(templates.some((template) => template.id === "weather-clock"));
   assert.ok(templates.some((template) => template.id === "calendar-day"));
   assert.ok(templates.some((template) => template.id === "github-status"));
+  assert.ok(templates.some((template) => template.id === "home-assistant-status"));
   const weatherDashboard = await postJson(`${base}/api/v1/dashboard-templates/weather-clock/clone`, {
     id: `weather-${suffix}`,
     name: "Weather test"
@@ -362,6 +383,11 @@ test("weather, calendar, GitHub, and authenticated HTTP source setup works witho
     name: "GitHub test"
   });
   assert.equal(githubDashboard.dashboard.name, "GitHub test");
+  const homeAssistantDashboard = await postJson(`${base}/api/v1/dashboard-templates/home-assistant-status/clone`, {
+    id: `home-assistant-board-${suffix}`,
+    name: "Home Assistant test"
+  });
+  assert.equal(homeAssistantDashboard.dashboard.name, "Home Assistant test");
 });
 
 test("backup and restore scripts operate on state", async () => {

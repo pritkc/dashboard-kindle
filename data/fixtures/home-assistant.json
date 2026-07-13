@@ -1,0 +1,81 @@
+{
+  "home": {
+    "baseUrl": "http://homeassistant.local:8123",
+    "entityCount": 7
+  },
+  "summary": {
+    "message": "7 entities reporting normally",
+    "total": 7,
+    "on": 3,
+    "unavailable": 0,
+    "updatedAt": "2026-07-13T12:10:00.000Z"
+  },
+  "entities": [
+    {
+      "entityId": "sensor.living_room_temperature",
+      "domain": "sensor",
+      "name": "Living room",
+      "state": "72",
+      "unit": "F",
+      "deviceClass": "temperature",
+      "lastChanged": "2026-07-13T12:02:00.000Z",
+      "lastUpdated": "2026-07-13T12:02:00.000Z"
+    },
+    {
+      "entityId": "sensor.humidity",
+      "domain": "sensor",
+      "name": "Humidity",
+      "state": "41",
+      "unit": "%",
+      "deviceClass": "humidity",
+      "lastChanged": "2026-07-13T12:03:00.000Z",
+      "lastUpdated": "2026-07-13T12:03:00.000Z"
+    },
+    {
+      "entityId": "light.kitchen",
+      "domain": "light",
+      "name": "Kitchen lights",
+      "state": "on",
+      "unit": "",
+      "lastChanged": "2026-07-13T11:45:00.000Z",
+      "lastUpdated": "2026-07-13T11:45:00.000Z"
+    },
+    {
+      "entityId": "lock.front_door",
+      "domain": "lock",
+      "name": "Front door",
+      "state": "locked",
+      "unit": "",
+      "lastChanged": "2026-07-13T10:15:00.000Z",
+      "lastUpdated": "2026-07-13T10:15:00.000Z"
+    },
+    {
+      "entityId": "binary_sensor.garage_door",
+      "domain": "binary_sensor",
+      "name": "Garage door",
+      "state": "off",
+      "unit": "",
+      "deviceClass": "garage_door",
+      "lastChanged": "2026-07-13T08:20:00.000Z",
+      "lastUpdated": "2026-07-13T08:20:00.000Z"
+    },
+    {
+      "entityId": "climate.downstairs",
+      "domain": "climate",
+      "name": "Downstairs thermostat",
+      "state": "cool",
+      "unit": "",
+      "lastChanged": "2026-07-13T09:00:00.000Z",
+      "lastUpdated": "2026-07-13T09:00:00.000Z"
+    },
+    {
+      "entityId": "person.home",
+      "domain": "person",
+      "name": "Household",
+      "state": "home",
+      "unit": "",
+      "lastChanged": "2026-07-13T07:30:00.000Z",
+      "lastUpdated": "2026-07-13T07:30:00.000Z"
+    }
+  ]
+}
