@@ -173,12 +173,20 @@ function renderSources() {
   $("sources").innerHTML = state.data.connectorInstances.map((source) => {
     const health = state.data.sourceHealth[source.id];
     const snapshot = state.data.snapshots[source.id];
+    const job = sourceJobFor(source.id);
+    const nextText = job?.enabled ? `next ${formatRelativeTime(job.nextRunAt)}` : "schedule paused";
+    const failureText = job?.consecutiveFailures ? ` · backoff ${job.consecutiveFailures} failure${job.consecutiveFailures === 1 ? "" : "s"}` : "";
     return `<div class="item">
       <strong>${escapeHtml(source.name)}</strong>
       <span>${escapeHtml(source.connectorId)} · ${escapeHtml(health?.state ?? "not collected")}</span>
       <span>${escapeHtml(snapshot?.payloadHash?.slice(0, 12) ?? "no snapshot")}</span>
+      <span>${escapeHtml(nextText + failureText)}</span>
     </div>`;
   }).join("");
+}
+
+function sourceJobFor(sourceId) {
+  return state.data.scheduler?.jobs?.find((job) => job.sourceId === sourceId);
 }
 
 function renderSourceWizard() {
@@ -189,7 +197,7 @@ function renderSourceWizard() {
   if (state.data.connectorManifests.find((manifest) => manifest.id === current)) {
     $("sourceConnector").value = current;
   }
-  if (!$("sourceConfig").value.trim()) fillSourceConfig();
+  if (!$("sourceConfig").value.trim()) fillSourceDefaults();
 }
 
 function renderDevices() {
@@ -269,6 +277,13 @@ async function collectAll() {
   });
 }
 
+async function runDueSources() {
+  await withAction("Running due source jobs", async () => {
+    const result = await api("/api/v1/scheduler/run-due", { method: "POST" });
+    await reloadState(`Ran ${result.ran} due source job${result.ran === 1 ? "" : "s"}.`);
+  });
+}
+
 async function completeSetup() {
   await withAction("Completing setup", async () => {
     await api("/api/v1/setup/complete", { method: "POST" });
@@ -321,14 +336,16 @@ function sourceInput() {
     connectorId: $("sourceConnector").value,
     ...(id ? { id } : {}),
     ...(name ? { name } : {}),
+    collectionIntervalSeconds: Number($("sourceInterval").value),
     config: parseJson($("sourceConfig").value, "Source configuration JSON")
   };
 }
 
-function fillSourceConfig() {
+function fillSourceDefaults() {
   const manifest = state.data?.connectorManifests.find((item) => item.id === $("sourceConnector").value);
   if (!manifest) return;
   $("sourceConfig").value = JSON.stringify(defaultConnectorConfig(manifest), null, 2);
+  $("sourceInterval").value = String(selectIntervalOption(manifest.defaultCollectionIntervalSeconds ?? 300));
 }
 
 function defaultConnectorConfig(manifest) {
@@ -352,6 +369,11 @@ function defaultValueForSchema(definition) {
   return "";
 }
 
+function selectIntervalOption(seconds) {
+  const options = [...$("sourceInterval").options].map((option) => Number(option.value));
+  return options.find((value) => value >= seconds) ?? options[0];
+}
+
 function renderSourceFields(fields) {
   $("sourceFields").innerHTML = fields.length ? fields.map((field) => `
     <div class="fieldItem">
@@ -368,6 +390,18 @@ function dataFieldsFromSnapshot(snapshot) {
     type: Array.isArray(value) ? "array" : typeof value,
     sample: Array.isArray(value) ? `${value.length} items` : typeof value === "object" && value ? `${Object.keys(value).length} fields` : value
   }));
+}
+
+function formatRelativeTime(isoTime) {
+  const timestamp = Date.parse(isoTime);
+  if (!Number.isFinite(timestamp)) return "unknown";
+  const deltaSeconds = Math.round((timestamp - Date.now()) / 1000);
+  if (deltaSeconds <= 0) return "now";
+  if (deltaSeconds < 90) return `in ${deltaSeconds}s`;
+  const minutes = Math.round(deltaSeconds / 60);
+  if (minutes < 90) return `in ${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  return `in ${hours}h`;
 }
 
 async function publish() {
@@ -487,6 +521,7 @@ function updateButtons() {
     "logout",
     "completeSetup",
     "cloneTemplate",
+    "runDueSources",
     "testSource",
     "saveSource",
     "createPairing"
@@ -530,6 +565,7 @@ $("refresh").addEventListener("click", refresh);
 $("bootstrap").addEventListener("click", bootstrap);
 $("completeSetup").addEventListener("click", completeSetup);
 $("cloneTemplate").addEventListener("click", cloneTemplate);
+$("runDueSources").addEventListener("click", runDueSources);
 $("testSource").addEventListener("click", testSource);
 $("saveSource").addEventListener("click", saveSource);
 $("collect").addEventListener("click", collectAll);
@@ -543,7 +579,7 @@ $("dashboardSelect").addEventListener("change", (event) => {
   render();
 });
 $("profileSelect").addEventListener("change", renderCurrent);
-$("sourceConnector").addEventListener("change", fillSourceConfig);
+$("sourceConnector").addEventListener("change", fillSourceDefaults);
 
 updateAuthUi();
 const savedToken = localStorage.getItem("dashboardKindleAdminToken");

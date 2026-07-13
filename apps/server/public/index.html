@@ -51,6 +51,7 @@
         <section>
           <h2>Sources</h2>
           <div id="sources" class="list compact"></div>
+          <button id="runDueSources" class="secondary">Run due now</button>
         </section>
         <section>
           <h2>Add Source</h2>
@@ -69,6 +70,16 @@
           <label>
             Configuration JSON
             <textarea id="sourceConfig" class="smallTextarea"></textarea>
+          </label>
+          <label>
+            Update data every
+            <select id="sourceInterval">
+              <option value="300">5 minutes</option>
+              <option value="900">15 minutes</option>
+              <option value="1800">30 minutes</option>
+              <option value="3600">1 hour</option>
+              <option value="10800">3 hours</option>
+            </select>
           </label>
           <div class="buttonRow">
             <button id="testSource" class="secondary">Test</button>

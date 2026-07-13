@@ -139,6 +139,53 @@ test("setup, templates, sources, webhooks, and pairing bundle support guided set
   assert.equal(publicPairing.deviceId, pairing.device.id);
 });
 
+test("source scheduler runs due jobs and backs off failures", async (t) => {
+  const state = loadState();
+  const server = createAppServer(state);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const suffix = Date.now().toString(36);
+
+  const initial = await getJson(`${base}/api/v1/scheduler`);
+  assert.ok(initial.jobs.some((job) => job.sourceId === "manual"));
+
+  await patchJson(`${base}/api/v1/sources/manual/schedule`, {
+    intervalSeconds: 60,
+    runAt: "1970-01-01T00:00:00.000Z"
+  });
+  const success = await postJson(`${base}/api/v1/scheduler/run-due`, {});
+  assert.equal(success.ran, 1);
+  assert.equal(success.results[0].sourceId, "manual");
+  assert.equal(success.results[0].status, "success");
+  const afterSuccess = await getJson(`${base}/api/v1/state`);
+  const manualJob = afterSuccess.scheduler.jobs.find((job) => job.sourceId === "manual");
+  assert.equal(manualJob.consecutiveFailures, 0);
+  assert.ok(Date.parse(manualJob.nextRunAt) > Date.now());
+
+  const broken = await postJson(`${base}/api/v1/sources`, {
+    id: `blocked-${suffix}`,
+    connectorId: "http.json",
+    name: "Blocked private HTTP",
+    collectionIntervalSeconds: 60,
+    config: { url: "http://127.0.0.1/private" }
+  });
+  assert.equal(broken.snapshot, null);
+  await patchJson(`${base}/api/v1/sources/blocked-${suffix}/schedule`, {
+    intervalSeconds: 60,
+    runAt: "1970-01-01T00:00:00.000Z"
+  });
+  const failure = await postJson(`${base}/api/v1/scheduler/run-due`, {});
+  assert.equal(failure.ran, 1);
+  assert.equal(failure.results[0].sourceId, `blocked-${suffix}`);
+  assert.equal(failure.results[0].status, "error");
+  const afterFailure = await getJson(`${base}/api/v1/state`);
+  const failedJob = afterFailure.scheduler.jobs.find((job) => job.sourceId === `blocked-${suffix}`);
+  assert.equal(failedJob.consecutiveFailures, 1);
+  assert.match(failedJob.lastError, /Blocked private-network/);
+  assert.ok(Date.parse(failedJob.nextRunAt) > Date.now());
+});
+
 test("backup and restore scripts operate on state", async () => {
   const state = await bootstrapState(loadState());
   assert.ok(Object.keys(state.renderArtifacts).length >= 3);
@@ -150,6 +197,18 @@ test("backup and restore scripts operate on state", async () => {
 async function postJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
+    headers: { "Content-Type": "application/json", ...adminHeaders },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    assert.fail(`${response.status} ${await response.text()}`);
+  }
+  return response.json();
+}
+
+async function patchJson(url, body) {
+  const response = await fetch(url, {
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...adminHeaders },
     body: JSON.stringify(body)
   });

@@ -82,9 +82,12 @@ The fixture setup starts with working CodexBar, ActivityWatch, HTTP JSON, and ma
 
 1. In **Add Source**, pick a connector.
 2. Keep the generated recommended JSON, or edit the fields required by the connector schema.
-3. Click **Test**.
-4. Review the returned field list. Use these paths in dashboard widgets, for example `$.metric` or `$.topApplications`.
-5. Click **Save**.
+3. Choose **Update data every**. This controls connector collection only; device polling and panel refresh are separate settings.
+4. Click **Test**.
+5. Review the returned field list. Use these paths in dashboard widgets, for example `$.metric` or `$.topApplications`.
+6. Click **Save**.
+
+Saved sources are collected by a durable scheduler. The source list shows the next scheduled collection and backoff state. **Run due now** executes only jobs whose scheduled time has arrived; **Collect sources** still performs an immediate manual retry of every configured source.
 
 Recommended first sources:
 

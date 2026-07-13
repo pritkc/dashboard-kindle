@@ -33,6 +33,7 @@ const loopbackHost = host === "127.0.0.1" || host === "localhost" || host === ":
 const adminToken = process.env.DASHBOARD_KINDLE_ADMIN_TOKEN ?? (loopbackHost ? "dev-admin-token" : "");
 const adminCookieName = "dashboard_kindle_admin";
 const dashboardWidgetTypes = new Set(["clock", "metric", "progress", "list", "bars", "status", "alert", "text"]);
+const schedulerTickMs = Number(process.env.DASHBOARD_KINDLE_SCHEDULER_TICK_MS ?? 5000);
 
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return;
@@ -52,6 +53,7 @@ export function loadState() {
   const state = readJson(statePath, null) ?? defaultState();
   state.pairingCodes ??= {};
   state.setup ??= { completed: false, completedSteps: [] };
+  ensureSourceJobs(state);
   ensureInitialRevisions(state);
   return state;
 }
@@ -63,7 +65,7 @@ export function saveState(state) {
 export async function bootstrapState(state = loadState()) {
   for (const instance of Object.values(state.connectorInstances)) {
     try {
-      await collectSource(state, instance.id);
+      await collectSource(state, instance.id, { updateSchedule: true });
     } catch {
       // Keep bootstrapping other fixture sources; individual connector health records carry the failure.
     }
@@ -92,7 +94,194 @@ function ensureInitialRevisions(state) {
   }
 }
 
-export async function collectSource(state, sourceId) {
+function ensureSourceJobs(state, nowMs = Date.now()) {
+  state.jobs = Array.isArray(state.jobs) ? state.jobs : [];
+  const sourceIds = new Set(Object.keys(state.connectorInstances ?? {}));
+  state.jobs = state.jobs.filter((job) => job?.type !== "source.collect" || sourceIds.has(job.sourceId));
+  for (const instance of Object.values(state.connectorInstances ?? {})) {
+    const existing = sourceJob(state, instance.id);
+    if (existing) {
+      normalizeSourceJob(state, existing, instance, nowMs);
+    } else {
+      state.jobs.push(createSourceJob(state, instance, nowMs));
+    }
+  }
+}
+
+function sourceJob(state, sourceId) {
+  return (state.jobs ?? []).find((job) => job.type === "source.collect" && job.sourceId === sourceId);
+}
+
+function createSourceJob(state, instance, nowMs = Date.now(), overrides = {}) {
+  const intervalSeconds = normalizedCollectionInterval(state, instance, overrides.intervalSeconds ?? instance.collectionIntervalSeconds);
+  const nextRunAt = overrides.nextRunAt ?? new Date(nowMs + initialCollectionDelaySeconds(instance.id, intervalSeconds) * 1000).toISOString();
+  return {
+    id: `source.collect:${instance.id}`,
+    type: "source.collect",
+    sourceId: instance.id,
+    enabled: overrides.enabled ?? true,
+    intervalSeconds,
+    nextRunAt,
+    lastRunAt: null,
+    lastSuccessAt: null,
+    lastErrorAt: null,
+    consecutiveFailures: 0,
+    lastError: null,
+    running: false,
+    updatedAt: nowIso()
+  };
+}
+
+function normalizeSourceJob(state, job, instance, nowMs = Date.now()) {
+  job.id ??= `source.collect:${instance.id}`;
+  job.sourceId = instance.id;
+  job.enabled = job.enabled !== false;
+  job.intervalSeconds = normalizedCollectionInterval(state, instance, job.intervalSeconds ?? instance.collectionIntervalSeconds);
+  job.nextRunAt ??= new Date(nowMs + initialCollectionDelaySeconds(instance.id, job.intervalSeconds) * 1000).toISOString();
+  job.lastRunAt ??= null;
+  job.lastSuccessAt ??= null;
+  job.lastErrorAt ??= null;
+  job.consecutiveFailures = Number.isFinite(Number(job.consecutiveFailures)) ? Number(job.consecutiveFailures) : 0;
+  job.lastError ??= null;
+  job.running = false;
+  job.updatedAt ??= nowIso();
+}
+
+function normalizedCollectionInterval(state, instance, requested) {
+  const manifest = state.connectorManifests[instance.connectorId] ?? {};
+  const minimum = Number(manifest.minimumCollectionIntervalSeconds ?? 60);
+  const fallback = Number(manifest.defaultCollectionIntervalSeconds ?? 300);
+  const value = Number(requested ?? fallback);
+  return Math.max(minimum, Number.isFinite(value) && value > 0 ? Math.round(value) : fallback);
+}
+
+function deterministicJitterSeconds(sourceId, intervalSeconds, salt = "") {
+  const maxJitter = Math.max(1, Math.min(30, Math.floor(intervalSeconds * 0.1)));
+  const numeric = Number.parseInt(sha256(`${sourceId}:${salt}`).slice(0, 8), 16);
+  return numeric % (maxJitter + 1);
+}
+
+function initialCollectionDelaySeconds(sourceId, intervalSeconds) {
+  return Math.min(intervalSeconds, 30 + deterministicJitterSeconds(sourceId, intervalSeconds, "initial"));
+}
+
+function nextScheduledRunAt(sourceId, intervalSeconds, nowMs) {
+  return new Date(nowMs + (intervalSeconds + deterministicJitterSeconds(sourceId, intervalSeconds, "schedule")) * 1000).toISOString();
+}
+
+function nextBackoffRunAt(sourceId, intervalSeconds, failures, nowMs) {
+  const backoffSeconds = Math.min(3600, intervalSeconds * 2 ** Math.min(6, Math.max(0, failures - 1)));
+  return new Date(nowMs + (backoffSeconds + deterministicJitterSeconds(sourceId, intervalSeconds, `backoff:${failures}`)) * 1000).toISOString();
+}
+
+function recordSourceJobSuccess(state, sourceId, nowMs = Date.now()) {
+  ensureSourceJobs(state, nowMs);
+  const job = sourceJob(state, sourceId);
+  if (!job) return;
+  job.lastRunAt = new Date(nowMs).toISOString();
+  job.lastSuccessAt = job.lastRunAt;
+  job.lastError = null;
+  job.lastErrorAt = null;
+  job.consecutiveFailures = 0;
+  job.nextRunAt = nextScheduledRunAt(sourceId, job.intervalSeconds, nowMs);
+  job.running = false;
+  job.updatedAt = nowIso();
+}
+
+function recordSourceJobFailure(state, sourceId, error, nowMs = Date.now()) {
+  ensureSourceJobs(state, nowMs);
+  const job = sourceJob(state, sourceId);
+  if (!job) return;
+  job.lastRunAt = new Date(nowMs).toISOString();
+  job.lastErrorAt = job.lastRunAt;
+  job.lastError = error;
+  job.consecutiveFailures = (job.consecutiveFailures ?? 0) + 1;
+  job.nextRunAt = nextBackoffRunAt(sourceId, job.intervalSeconds, job.consecutiveFailures, nowMs);
+  job.running = false;
+  job.updatedAt = nowIso();
+}
+
+export async function runDueSourceJobs(state, options = {}) {
+  const nowMs = options.nowMs ?? Date.now();
+  ensureSourceJobs(state, nowMs);
+  const due = state.jobs
+    .filter((job) => job.type === "source.collect" && job.enabled && !job.running)
+    .filter((job) => options.sourceIds ? options.sourceIds.includes(job.sourceId) : true)
+    .filter((job) => Date.parse(job.nextRunAt) <= nowMs)
+    .sort((left, right) => Date.parse(left.nextRunAt) - Date.parse(right.nextRunAt))
+    .slice(0, options.limit ?? Number.POSITIVE_INFINITY);
+  const results = [];
+  for (const job of due) {
+    job.running = true;
+    job.lastRunAt = new Date(nowMs).toISOString();
+    job.updatedAt = nowIso();
+    try {
+      const snapshot = await collectSource(state, job.sourceId, { updateSchedule: true, nowMs });
+      results.push({ sourceId: job.sourceId, status: "success", snapshotId: snapshot.id, nextRunAt: sourceJob(state, job.sourceId)?.nextRunAt });
+    } catch (error) {
+      results.push({ sourceId: job.sourceId, status: "error", error: redactError(error), nextRunAt: sourceJob(state, job.sourceId)?.nextRunAt });
+    } finally {
+      const updated = sourceJob(state, job.sourceId);
+      if (updated) updated.running = false;
+    }
+  }
+  return { ran: results.length, results, nextRunAt: nextSchedulerWakeAt(state) };
+}
+
+function nextSchedulerWakeAt(state) {
+  const timestamps = (state.jobs ?? [])
+    .filter((job) => job.type === "source.collect" && job.enabled && !job.running)
+    .map((job) => Date.parse(job.nextRunAt))
+    .filter(Number.isFinite);
+  return timestamps.length ? new Date(Math.min(...timestamps)).toISOString() : null;
+}
+
+function schedulerStatus(state) {
+  ensureSourceJobs(state);
+  return {
+    nextRunAt: nextSchedulerWakeAt(state),
+    jobs: state.jobs
+      .filter((job) => job.type === "source.collect")
+      .map((job) => publicSourceJob(job))
+  };
+}
+
+function publicSourceJob(job) {
+  const { lastError, ...publicJob } = job;
+  return {
+    ...publicJob,
+    lastError: lastError ? redactError(lastError) : null,
+    due: job.enabled && !job.running && Date.parse(job.nextRunAt) <= Date.now()
+  };
+}
+
+function updateSourceSchedule(state, sourceId, input, nowMs = Date.now()) {
+  const instance = state.connectorInstances[sourceId];
+  if (!instance) throw httpError(404, `Unknown source ${sourceId}`);
+  ensureSourceJobs(state, nowMs);
+  const job = sourceJob(state, sourceId) ?? createSourceJob(state, instance, nowMs);
+  if (!state.jobs.includes(job)) state.jobs.push(job);
+  if (input.enabled !== undefined) {
+    if (typeof input.enabled !== "boolean") throw httpError(400, "Schedule enabled must be a boolean");
+    job.enabled = input.enabled;
+  }
+  if (input.intervalSeconds !== undefined) {
+    job.intervalSeconds = normalizedCollectionInterval(state, instance, input.intervalSeconds);
+    instance.collectionIntervalSeconds = job.intervalSeconds;
+  }
+  if (input.runAt !== undefined) {
+    const parsed = Date.parse(input.runAt);
+    if (!Number.isFinite(parsed)) throw httpError(400, "Schedule runAt must be an ISO timestamp");
+    job.nextRunAt = new Date(parsed).toISOString();
+  } else if (input.intervalSeconds !== undefined || input.enabled === true) {
+    job.nextRunAt = nextScheduledRunAt(sourceId, job.intervalSeconds, nowMs);
+  }
+  job.updatedAt = nowIso();
+  audit(state, "source.schedule.updated", { sourceId, enabled: job.enabled, intervalSeconds: job.intervalSeconds, nextRunAt: job.nextRunAt });
+  return publicSourceJob(job);
+}
+
+export async function collectSource(state, sourceId, options = {}) {
   const instance = state.connectorInstances[sourceId];
   if (!instance) throw httpError(404, `Unknown source ${sourceId}`);
   try {
@@ -105,6 +294,7 @@ export async function collectSource(state, sourceId) {
       snapshotAgeSeconds: 0,
       diagnostics: snapshot.diagnostics
     };
+    if (options.updateSchedule) recordSourceJobSuccess(state, sourceId, options.nowMs ?? Date.now());
     audit(state, "source.collect.succeeded", { sourceId, snapshotId: snapshot.id });
     return snapshot;
   } catch (error) {
@@ -114,6 +304,7 @@ export async function collectSource(state, sourceId) {
       lastErrorAt: nowIso(),
       error: redactError(error)
     };
+    if (options.updateSchedule) recordSourceJobFailure(state, sourceId, redactError(error), options.nowMs ?? Date.now());
     audit(state, "source.collect.failed", { sourceId, error: redactError(error) });
     throw error;
   }
@@ -206,10 +397,13 @@ function createConnectorInstance(state, input) {
     outputSchemaVersion: manifest.outputSchemaVersion,
     name: input.name || manifest.displayName,
     config,
+    collectionIntervalSeconds: normalizedCollectionInterval(state, { connectorId, collectionIntervalSeconds: input.collectionIntervalSeconds }, input.collectionIntervalSeconds),
     validForSeconds: input.validForSeconds ?? manifest.defaultCollectionIntervalSeconds * 3,
     timeoutMs: manifest.timeoutMs
   };
   state.connectorInstances[id] = instance;
+  ensureSourceJobs(state);
+  updateSourceSchedule(state, id, { intervalSeconds: instance.collectionIntervalSeconds });
   audit(state, "source.created", { sourceId: id, connectorId });
   return instance;
 }
@@ -570,6 +764,14 @@ async function route(request, response, state) {
   }
   if (request.method === "GET" && url.pathname === "/api/v1/state") return sendJson(response, 200, publicState(state));
   if (request.method === "GET" && url.pathname === "/api/v1/connectors/manifests") return sendJson(response, 200, Object.values(state.connectorManifests));
+  if (request.method === "GET" && url.pathname === "/api/v1/scheduler") {
+    return sendJson(response, 200, schedulerStatus(state));
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/scheduler/run-due") {
+    const result = await runDueSourceJobs(state);
+    saveState(state);
+    return sendJson(response, 200, result);
+  }
   if (request.method === "GET" && url.pathname === "/api/v1/setup") {
     return sendJson(response, 200, setupStatus(state));
   }
@@ -636,9 +838,21 @@ async function route(request, response, state) {
   }
   if (request.method === "POST" && url.pathname.match(/^\/api\/v1\/sources\/[^/]+\/collect$/)) {
     const sourceId = url.pathname.split("/")[4];
-    const snapshot = await collectSource(state, sourceId);
+    try {
+      const snapshot = await collectSource(state, sourceId, { updateSchedule: true });
+      saveState(state);
+      return sendJson(response, 200, snapshot);
+    } catch (error) {
+      saveState(state);
+      throw error;
+    }
+  }
+  if (request.method === "PATCH" && url.pathname.match(/^\/api\/v1\/sources\/[^/]+\/schedule$/)) {
+    const sourceId = url.pathname.split("/")[4];
+    const body = await readBody(request);
+    const job = updateSourceSchedule(state, sourceId, body);
     saveState(state);
-    return sendJson(response, 200, snapshot);
+    return sendJson(response, 200, job);
   }
   if (request.method === "GET" && url.pathname === "/api/v1/dashboards") return sendJson(response, 200, Object.values(state.dashboards));
   if (request.method === "POST" && url.pathname === "/api/v1/dashboards") {
@@ -754,6 +968,7 @@ async function route(request, response, state) {
       devices: Object.values(state.devices).map(withoutToken),
       checkins: state.deviceCheckins,
       artifacts: Object.values(state.renderArtifacts).map((artifact) => ({ ...artifact, imagePath: path.relative(repoPath(), artifact.imagePath) })),
+      scheduler: schedulerStatus(state),
       auditEvents: state.auditEvents.slice(-50)
     });
   }
@@ -773,6 +988,7 @@ function publicState(state) {
     devices: Object.values(state.devices).map(withoutToken),
     assignments: state.assignments,
     deviceCheckins: state.deviceCheckins,
+    scheduler: schedulerStatus(state),
     setup: setupStatus(state),
     pairingCodes: Object.values(state.pairingCodes ?? {}).map(({ token, ...record }) => record)
   };
@@ -834,6 +1050,33 @@ export function createAppServer(state = loadState()) {
   });
 }
 
+export function startSourceScheduler(state, options = {}) {
+  const intervalMs = options.intervalMs ?? schedulerTickMs;
+  if (intervalMs <= 0) return { stop() {} };
+  let running = false;
+  async function tick() {
+    if (running) return;
+    running = true;
+    try {
+      const result = await runDueSourceJobs(state);
+      if (result.ran > 0) saveState(state);
+    } catch (error) {
+      audit(state, "scheduler.tick.failed", { error: redactError(error) });
+      saveState(state);
+    } finally {
+      running = false;
+    }
+  }
+  const timer = setInterval(tick, intervalMs);
+  timer.unref?.();
+  tick();
+  return {
+    stop() {
+      clearInterval(timer);
+    }
+  };
+}
+
 if (process.argv[1] === new URL(import.meta.url).pathname) {
   if (!adminToken) {
     console.error("DASHBOARD_KINDLE_ADMIN_TOKEN is required when binding outside loopback.");
@@ -842,6 +1085,7 @@ if (process.argv[1] === new URL(import.meta.url).pathname) {
   const state = loadState();
   saveState(state);
   const server = createAppServer(state);
+  startSourceScheduler(state);
   server.listen(port, host, () => {
     console.log(`dashboard-kindle listening on http://${host}:${port}`);
   });
