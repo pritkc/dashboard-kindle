@@ -12,7 +12,11 @@ for (const file of files.filter((item) => item.endsWith(".js"))) {
   const text = fs.readFileSync(file, "utf8");
   if (/\t/.test(text)) throw new Error(`Tabs are not used in source files: ${file}`);
 }
-console.log(`Lint syntax check passed for ${files.filter((item) => item.endsWith(".js")).length} JavaScript files.`);
+for (const file of files.filter((item) => item.endsWith(".sh"))) {
+  const result = spawnSync("sh", ["-n", file], { stdio: "inherit" });
+  if (result.status !== 0) process.exit(result.status);
+}
+console.log(`Lint syntax check passed for ${files.filter((item) => item.endsWith(".js")).length} JavaScript files and ${files.filter((item) => item.endsWith(".sh")).length} shell scripts.`);
 
 function walk(dir, output) {
   if (!fs.existsSync(dir)) return;

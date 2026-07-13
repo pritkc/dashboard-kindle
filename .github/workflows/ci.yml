@@ -12,7 +12,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "26.0.0"
-      - run: sudo apt-get update && sudo apt-get install -y imagemagick
+      - run: corepack enable
+      - run: sudo apt-get update && sudo apt-get install -y imagemagick librsvg2-bin
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test

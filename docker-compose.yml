@@ -10,6 +10,7 @@ services:
       DASHBOARD_KINDLE_HOST: "0.0.0.0"
       DASHBOARD_KINDLE_PORT: "8787"
       DASHBOARD_KINDLE_DATA_DIR: "/data"
+      DASHBOARD_KINDLE_ADMIN_TOKEN: "${DASHBOARD_KINDLE_ADMIN_TOKEN:?Set DASHBOARD_KINDLE_ADMIN_TOKEN before starting Docker Compose}"
       DASHBOARD_KINDLE_MASTER_KEY: "${DASHBOARD_KINDLE_MASTER_KEY:-dev-only-change-me}"
     volumes:
       - dashboard_kindle_data:/data

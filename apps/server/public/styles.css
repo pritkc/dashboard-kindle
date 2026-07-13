@@ -13,6 +13,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--paper);
@@ -21,12 +25,14 @@ body {
 }
 
 button,
+input,
 select,
 textarea {
   font: inherit;
 }
 
 button,
+input,
 select {
   min-height: 36px;
   border: 1px solid var(--ink);
@@ -40,6 +46,12 @@ button {
   cursor: pointer;
   background: var(--ink);
   color: white;
+}
+
+input {
+  min-width: 180px;
+  background: white;
+  color: var(--ink);
 }
 
 button.secondary {
@@ -88,6 +100,25 @@ h2 {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.loginForm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.status {
+  min-height: 34px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--line);
+  background: #eef3f0;
+  color: var(--accent);
+}
+
+.status.error {
+  background: #fff1e4;
+  color: var(--warn);
 }
 
 .shell {
@@ -167,6 +198,13 @@ iframe {
   width: 100%;
   height: 620px;
   border: 0;
+  background: #777;
+}
+
+#processedPreview {
+  width: 100%;
+  height: 620px;
+  object-fit: contain;
   background: #777;
 }
 

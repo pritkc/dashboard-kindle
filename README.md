@@ -4,12 +4,35 @@ Dashboard Kindle is a self-hosted e-ink dashboard control plane and thin-device 
 
 ## Quick Start
 
+Prerequisites:
+
+```bash
+node --version   # v22 or newer; v26 is used in CI
+pnpm --version   # v10
+magick -version || convert -version
+rsvg-convert --version
+```
+
+On macOS, install renderer dependencies with:
+
+```bash
+brew install imagemagick librsvg
+```
+
+Optional local configuration is loaded from `.env`:
+
+```bash
+cp .env.example .env
+```
+
+For loopback development, the default administrator token is `dev-admin-token`. Set a strong `DASHBOARD_KINDLE_ADMIN_TOKEN` before binding to a LAN address or using Docker.
+
 ```bash
 pnpm seed
 pnpm dev
 ```
 
-Open `http://127.0.0.1:8787`.
+Open `http://127.0.0.1:8787` and unlock with the administrator token.
 
 Useful commands:
 
@@ -48,7 +71,7 @@ curl -i http://127.0.0.1:8787/api/v1/device/display \
 Run the simulator after the server is started:
 
 ```bash
-pnpm simulator
+DASHBOARD_KINDLE_ADMIN_TOKEN=<admin-token> pnpm simulator
 ```
 
 ## Foundation

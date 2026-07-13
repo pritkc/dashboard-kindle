@@ -3,6 +3,7 @@ import path from "node:path";
 import { sha256, repoPath } from "../../../packages/domain/src/core.js";
 
 const server = process.env.DASHBOARD_KINDLE_SERVER ?? "http://127.0.0.1:8787";
+const adminToken = process.env.DASHBOARD_KINDLE_ADMIN_TOKEN ?? "dev-admin-token";
 let token = process.env.DASHBOARD_KINDLE_DEVICE_TOKEN;
 
 if (!token) {
@@ -48,7 +49,7 @@ console.log(JSON.stringify({
 async function postJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Admin-Token": adminToken },
     body: JSON.stringify(body)
   });
   if (!response.ok) throw new Error(`POST ${url} failed: ${response.status} ${await response.text()}`);

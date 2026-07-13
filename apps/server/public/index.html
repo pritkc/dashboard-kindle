@@ -13,10 +13,17 @@
         <p>Self-hosted e-ink dashboard control plane</p>
       </div>
       <div class="actions">
+        <form id="loginForm" class="loginForm">
+          <input type="text" autocomplete="username" value="dashboard-kindle-admin" hidden>
+          <input id="adminToken" type="password" autocomplete="current-password" placeholder="Admin token">
+          <button type="submit">Unlock</button>
+        </form>
+        <button id="logout" class="secondary" hidden>Lock</button>
         <button id="bootstrap">Seed + render</button>
         <button id="refresh">Refresh</button>
       </div>
     </header>
+    <div id="status" class="status" role="status"></div>
 
     <main class="shell">
       <aside class="panel">
@@ -58,6 +65,7 @@
         <div class="previewRow">
           <div class="previewBox">
             <iframe id="preview" title="Exact dashboard render preview"></iframe>
+            <img id="processedPreview" alt="Processed e-ink PNG preview" hidden>
           </div>
           <div class="inspector">
             <h2>Inspector</h2>
