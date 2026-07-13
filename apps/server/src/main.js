@@ -615,6 +615,103 @@ function dashboardTemplates() {
   ];
 }
 
+function duplicateDashboard(state, dashboardId, input = {}) {
+  const source = state.dashboards[dashboardId];
+  if (!source) throw httpError(404, "Dashboard not found");
+  const definition = structuredClone(source.draft);
+  definition.name = input.name ?? `${source.name} copy`;
+  const id = input.id ?? uniqueDashboardId(state, `${source.id}-copy`);
+  validateDashboardId(state, id);
+  validateDashboardDefinition(definition, state);
+  state.dashboards[id] = { id, name: definition.name, archived: false, currentRevisionId: null, draft: definition };
+  const revision = publishDashboard(state, id);
+  audit(state, "dashboard.duplicated", { dashboardId, duplicateDashboardId: id });
+  return { dashboard: state.dashboards[id], revision };
+}
+
+function archiveDashboard(state, dashboardId, archived) {
+  const dashboard = state.dashboards[dashboardId];
+  if (!dashboard) throw httpError(404, "Dashboard not found");
+  dashboard.archived = Boolean(archived);
+  audit(state, dashboard.archived ? "dashboard.archived" : "dashboard.restored", { dashboardId });
+  return dashboard;
+}
+
+function deleteDashboard(state, dashboardId) {
+  const dashboard = state.dashboards[dashboardId];
+  if (!dashboard) throw httpError(404, "Dashboard not found");
+  if (Object.keys(state.dashboards).length <= 1) throw httpError(400, "Cannot delete the last dashboard");
+  const assignedDevices = Object.values(state.assignments ?? {}).filter((assignment) => assignment.dashboardId === dashboardId);
+  if (assignedDevices.length) throw httpError(409, "Cannot delete a dashboard assigned to a device. Reassign or revoke the device first.");
+  const revisionIds = Object.entries(state.dashboardRevisions)
+    .filter(([, revision]) => revision.dashboardId === dashboardId)
+    .map(([revisionId]) => revisionId);
+  const artifactIds = Object.entries(state.renderArtifacts)
+    .filter(([, artifact]) => artifact.dashboardId === dashboardId)
+    .map(([artifactId]) => artifactId);
+  for (const artifactId of artifactIds) {
+    const artifact = state.renderArtifacts[artifactId];
+    for (const filePath of [artifact.imagePath, artifact.svgPath, artifact.pgmPath]) {
+      if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    }
+    delete state.renderArtifacts[artifactId];
+  }
+  for (const revisionId of revisionIds) delete state.dashboardRevisions[revisionId];
+  delete state.dashboards[dashboardId];
+  audit(state, "dashboard.deleted", { dashboardId, revisionCount: revisionIds.length, artifactCount: artifactIds.length });
+  return { deleted: true, dashboardId, revisionCount: revisionIds.length, artifactCount: artifactIds.length };
+}
+
+function exportDashboard(state, dashboardId) {
+  const dashboard = state.dashboards[dashboardId];
+  if (!dashboard) throw httpError(404, "Dashboard not found");
+  return {
+    kind: "dashboard-kindle.dashboard",
+    version: 1,
+    exportedAt: nowIso(),
+    dashboard: {
+      name: dashboard.name,
+      archived: Boolean(dashboard.archived),
+      definition: dashboard.draft
+    }
+  };
+}
+
+function importDashboard(state, input = {}) {
+  const payload = input.dashboard?.definition ? input.dashboard : input;
+  const definition = structuredClone(payload.definition ?? input.definition);
+  if (!definition) throw httpError(400, "Dashboard import requires a definition");
+  definition.name = input.name ?? payload.name ?? definition.name ?? "Imported dashboard";
+  validateDashboardDefinition(definition, state);
+  const id = input.id ?? uniqueDashboardId(state, slugifyDashboardId(definition.name || "imported-dashboard"));
+  validateDashboardId(state, id);
+  state.dashboards[id] = { id, name: definition.name, archived: false, currentRevisionId: null, draft: definition };
+  const revision = publishDashboard(state, id);
+  audit(state, "dashboard.imported", { dashboardId: id });
+  return { dashboard: state.dashboards[id], revision };
+}
+
+function validateDashboardId(state, id) {
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw httpError(400, "Dashboard id may only contain letters, numbers, underscores, and dashes");
+  if (state.dashboards[id]) throw httpError(409, `Dashboard ${id} already exists`);
+}
+
+function uniqueDashboardId(state, baseId) {
+  const base = slugifyDashboardId(baseId);
+  let id = base;
+  let index = 2;
+  while (state.dashboards[id]) {
+    id = `${base}-${index}`;
+    index += 1;
+  }
+  return id;
+}
+
+function slugifyDashboardId(value) {
+  const slug = String(value).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug || `dashboard-${sha256(Date.now()).slice(0, 8)}`;
+}
+
 function createPairingCode(state, input, request) {
   cleanupPairingCodes(state);
   const enrollment = enrollDevice(state, input);
@@ -929,7 +1026,7 @@ async function route(request, response, state) {
     if (!template) throw httpError(404, "Dashboard template not found");
     const body = await readBody(request);
     const id = body.id ?? `${template.id}-${sha256(`${Date.now()}`).slice(0, 6)}`;
-    if (state.dashboards[id]) throw httpError(409, `Dashboard ${id} already exists`);
+    validateDashboardId(state, id);
     const definition = structuredClone(template.definition);
     definition.name = body.name ?? template.name;
     validateDashboardDefinition(definition, state);
@@ -1000,12 +1097,43 @@ async function route(request, response, state) {
     if (!body.definition) throw httpError(400, "Dashboard definition is required");
     validateDashboardDefinition(body.definition, state);
     const id = body.id ?? `dashboard-${sha256(body.name ?? Date.now()).slice(0, 8)}`;
-    if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw httpError(400, "Dashboard id may only contain letters, numbers, underscores, and dashes");
-    if (state.dashboards[id]) throw httpError(409, `Dashboard ${id} already exists`);
+    validateDashboardId(state, id);
     state.dashboards[id] = { id, name: body.name ?? "Untitled dashboard", archived: false, currentRevisionId: null, draft: body.definition };
     const revision = publishDashboard(state, id);
     saveState(state);
     return sendJson(response, 201, { dashboard: state.dashboards[id], revision });
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/dashboards/import") {
+    const body = await readBody(request);
+    const imported = importDashboard(state, body);
+    saveState(state);
+    return sendJson(response, 201, imported);
+  }
+  if (request.method === "GET" && url.pathname.match(/^\/api\/v1\/dashboards\/[^/]+\/export$/)) {
+    const id = url.pathname.split("/")[4];
+    return sendJson(response, 200, exportDashboard(state, id), {
+      "Content-Disposition": `attachment; filename="dashboard-kindle-${id}.json"`
+    });
+  }
+  if (request.method === "POST" && url.pathname.match(/^\/api\/v1\/dashboards\/[^/]+\/duplicate$/)) {
+    const id = url.pathname.split("/")[4];
+    const body = await readBody(request);
+    const duplicate = duplicateDashboard(state, id, body);
+    saveState(state);
+    return sendJson(response, 201, duplicate);
+  }
+  if (request.method === "POST" && url.pathname.match(/^\/api\/v1\/dashboards\/[^/]+\/archive$/)) {
+    const id = url.pathname.split("/")[4];
+    const body = await readBody(request);
+    const dashboard = archiveDashboard(state, id, body.archived ?? true);
+    saveState(state);
+    return sendJson(response, 200, dashboard);
+  }
+  if (request.method === "DELETE" && url.pathname.match(/^\/api\/v1\/dashboards\/[^/]+$/)) {
+    const id = url.pathname.split("/")[4];
+    const result = deleteDashboard(state, id);
+    saveState(state);
+    return sendJson(response, 200, result);
   }
   if (request.method === "PATCH" && url.pathname.match(/^\/api\/v1\/dashboards\/[^/]+$/)) {
     const id = url.pathname.split("/")[4];
@@ -1013,6 +1141,7 @@ async function route(request, response, state) {
     const dashboard = state.dashboards[id];
     if (!dashboard) throw httpError(404, "Dashboard not found");
     if (body.name) dashboard.name = body.name;
+    if (body.archived !== undefined) dashboard.archived = Boolean(body.archived);
     if (body.definition) {
       validateDashboardDefinition(body.definition, state);
       dashboard.draft = body.definition;

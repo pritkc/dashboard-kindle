@@ -128,6 +128,7 @@ function render() {
     state.dashboardId = dashboards[0]?.id;
   }
   renderDashboardList();
+  renderDashboardManagement();
   renderSetup();
   renderTemplates();
   renderSources();
@@ -155,7 +156,7 @@ function renderDashboardList() {
   $("dashboards").innerHTML = state.data.dashboards.map((dashboard) => `
     <button class="item secondary" data-dashboard="${dashboard.id}">
       <strong>${escapeHtml(dashboard.name)}</strong>
-      <span>${escapeHtml(dashboard.currentRevisionId ?? "draft only")}</span>
+      <span>${escapeHtml(`${dashboard.archived ? "archived · " : ""}${dashboard.currentRevisionId ?? "draft only"}`)}</span>
     </button>
   `).join("");
   document.querySelectorAll("[data-dashboard]").forEach((button) => {
@@ -164,6 +165,16 @@ function renderDashboardList() {
       render();
     });
   });
+}
+
+function currentDashboard() {
+  return state.data?.dashboards.find((item) => item.id === state.dashboardId);
+}
+
+function renderDashboardManagement() {
+  const dashboard = currentDashboard();
+  $("dashboardName").value = dashboard?.name ?? "";
+  $("archiveDashboard").textContent = dashboard?.archived ? "Restore" : "Archive";
 }
 
 function renderTemplates() {
@@ -289,17 +300,17 @@ function renderPairingDefaults() {
 }
 
 function renderSelects() {
-  $("dashboardSelect").innerHTML = state.data.dashboards.map((dashboard) => `<option value="${dashboard.id}">${escapeHtml(dashboard.name)}</option>`).join("");
+  $("dashboardSelect").innerHTML = state.data.dashboards.map((dashboard) => `<option value="${dashboard.id}">${escapeHtml(`${dashboard.name}${dashboard.archived ? " (archived)" : ""}`)}</option>`).join("");
   $("dashboardSelect").value = state.dashboardId;
   $("deviceSelect").innerHTML = state.data.devices.map((device) => `<option value="${device.id}">${escapeHtml(device.name)}</option>`).join("");
-  const dashboard = state.data.dashboards.find((item) => item.id === state.dashboardId);
+  const dashboard = currentDashboard();
   if (document.activeElement !== $("definition")) {
     $("definition").value = JSON.stringify(dashboard?.draft ?? {}, null, 2);
   }
 }
 
 function renderInspector() {
-  const dashboard = state.data.dashboards.find((item) => item.id === state.dashboardId);
+  const dashboard = currentDashboard();
   const revisions = state.data.dashboardRevisions.filter((revision) => revision.dashboardId === state.dashboardId);
   const artifact = latestArtifact();
   $("inspector").innerHTML = dl({
@@ -374,6 +385,79 @@ async function cloneTemplate() {
     state.dashboardId = result.dashboard.id;
     $("templateName").value = "";
     await reloadState("Dashboard created from template.");
+  });
+}
+
+async function renameDashboard() {
+  await withAction("Renaming dashboard", async () => {
+    const dashboard = currentDashboard();
+    if (!dashboard) throw new Error("No dashboard selected.");
+    const name = $("dashboardName").value.trim();
+    if (!name) throw new Error("Dashboard name is required.");
+    await api(`/api/v1/dashboards/${dashboard.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name })
+    });
+    await reloadState("Dashboard renamed.");
+  });
+}
+
+async function duplicateDashboard() {
+  await withAction("Duplicating dashboard", async () => {
+    const dashboard = currentDashboard();
+    if (!dashboard) throw new Error("No dashboard selected.");
+    const name = $("dashboardName").value.trim() || `${dashboard.name} copy`;
+    const result = await api(`/api/v1/dashboards/${dashboard.id}/duplicate`, {
+      method: "POST",
+      body: JSON.stringify({ name })
+    });
+    state.dashboardId = result.dashboard.id;
+    await reloadState("Dashboard duplicated.");
+  });
+}
+
+async function archiveDashboardAction() {
+  await withAction("Updating dashboard archive state", async () => {
+    const dashboard = currentDashboard();
+    if (!dashboard) throw new Error("No dashboard selected.");
+    await api(`/api/v1/dashboards/${dashboard.id}/archive`, {
+      method: "POST",
+      body: JSON.stringify({ archived: !dashboard.archived })
+    });
+    await reloadState(dashboard.archived ? "Dashboard restored." : "Dashboard archived.");
+  });
+}
+
+async function deleteDashboardAction() {
+  const dashboard = currentDashboard();
+  if (!dashboard) return;
+  if (!window.confirm(`Delete ${dashboard.name}? This removes its revisions and render artifacts. Assigned dashboards must be reassigned first.`)) return;
+  await withAction("Deleting dashboard", async () => {
+    await api(`/api/v1/dashboards/${dashboard.id}`, { method: "DELETE" });
+    state.dashboardId = state.data.dashboards.find((item) => item.id !== dashboard.id)?.id;
+    await reloadState("Dashboard deleted.");
+  });
+}
+
+async function exportDashboardAction() {
+  await withAction("Exporting dashboard", async () => {
+    const dashboard = currentDashboard();
+    if (!dashboard) throw new Error("No dashboard selected.");
+    const exported = await api(`/api/v1/dashboards/${dashboard.id}/export`);
+    $("dashboardImportExport").value = JSON.stringify(exported, null, 2);
+    setStatus("Dashboard export JSON is ready.");
+  });
+}
+
+async function importDashboardAction() {
+  await withAction("Importing dashboard", async () => {
+    const payload = parseJson($("dashboardImportExport").value, "Dashboard import JSON");
+    const result = await api("/api/v1/dashboards/import", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    state.dashboardId = result.dashboard.id;
+    await reloadState("Dashboard imported.");
   });
 }
 
@@ -646,6 +730,12 @@ function updateButtons() {
     "logout",
     "completeSetup",
     "cloneTemplate",
+    "renameDashboard",
+    "duplicateDashboard",
+    "archiveDashboard",
+    "deleteDashboard",
+    "exportDashboard",
+    "importDashboard",
     "runDueSources",
     "saveDevicePolicy",
     "refreshNextPoll",
@@ -656,11 +746,13 @@ function updateButtons() {
     "createPairing"
   ]);
   const deviceActionButtons = new Set(["saveDevicePolicy", "refreshNextPoll", "rotateDeviceToken", "revokeDevice"]);
+  const dashboardActionButtons = new Set(["renameDashboard", "duplicateDashboard", "archiveDashboard", "deleteDashboard", "exportDashboard"]);
   for (const button of document.querySelectorAll("button")) {
     button.disabled = state.busy ||
       (protectedButtons.has(button.id) && !state.authenticated) ||
       (button.id === "completeSetup" && Boolean(state.data?.setup?.completed)) ||
-      (deviceActionButtons.has(button.id) && !currentManagedDevice());
+      (deviceActionButtons.has(button.id) && !currentManagedDevice()) ||
+      (dashboardActionButtons.has(button.id) && !currentDashboard());
   }
 }
 
@@ -696,6 +788,12 @@ $("refresh").addEventListener("click", refresh);
 $("bootstrap").addEventListener("click", bootstrap);
 $("completeSetup").addEventListener("click", completeSetup);
 $("cloneTemplate").addEventListener("click", cloneTemplate);
+$("renameDashboard").addEventListener("click", renameDashboard);
+$("duplicateDashboard").addEventListener("click", duplicateDashboard);
+$("archiveDashboard").addEventListener("click", archiveDashboardAction);
+$("deleteDashboard").addEventListener("click", deleteDashboardAction);
+$("exportDashboard").addEventListener("click", exportDashboardAction);
+$("importDashboard").addEventListener("click", importDashboardAction);
 $("runDueSources").addEventListener("click", runDueSources);
 $("testSource").addEventListener("click", testSource);
 $("saveSource").addEventListener("click", saveSource);

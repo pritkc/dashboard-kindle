@@ -106,7 +106,20 @@ Use **Templates** in the UI for a no-code start. Current templates include blank
 
 The raw JSON editor remains available for advanced changes. Publish explicitly after editing JSON.
 
-## 6. Pair a Device
+## 6. Manage Dashboards
+
+Use **Dashboard Management** in the sidebar for the selected dashboard:
+
+* **Rename**: changes the dashboard name shown in lists and device assignment controls.
+* **Duplicate**: creates a new editable copy and selects it.
+* **Archive/Restore**: hides old dashboards from active use without deleting revision history.
+* **Delete**: removes the dashboard, its revisions, and render artifacts. The server blocks deletion if the dashboard is currently assigned to a device or if it is the last dashboard.
+* **Export**: writes portable dashboard JSON into the import/export text area.
+* **Import**: creates a new dashboard from exported JSON or a raw dashboard definition.
+
+Exported JSON contains the declarative dashboard definition only. It does not include snapshots, rendered images, device tokens, or connector secrets.
+
+## 7. Pair a Device
 
 ### UI pairing path
 
@@ -170,7 +183,7 @@ curl -i http://127.0.0.1:8787/api/v1/device/display \
 
 Expected result for an unchanged non-clock dashboard is `304 Not Modified`.
 
-## 7. Manage Devices and Refresh Behavior
+## 8. Manage Devices and Refresh Behavior
 
 Use **Device Management** in the sidebar after enrolling or pairing a device.
 
@@ -209,7 +222,7 @@ Presets:
 | Near Real-Time | Up to every 1 minute | Every 4 changed images | Off |
 | Custom | User-selected | User-selected | User-selected |
 
-## 8. Use the Simulator
+## 9. Use the Simulator
 
 With the server running:
 
@@ -229,7 +242,7 @@ To reuse an existing token:
 DASHBOARD_KINDLE_DEVICE_TOKEN=<device-token> pnpm simulator
 ```
 
-## 9. Kindle Compatibility
+## 10. Kindle Compatibility
 
 Dashboard Kindle’s physical client is a KUAL extension. A stock Kindle cannot run it until the device has a jailbreak and KUAL installed.
 
@@ -247,7 +260,7 @@ Known current limitations:
 * The server/device protocol is tested in simulator and with generated KUAL packages; physical framebuffer behavior still needs hardware validation.
 * Keep the server on a trusted LAN or behind HTTPS. Do not expose port `8787` directly to the public internet.
 
-## 10. Configure Kindle KUAL Client
+## 11. Configure Kindle KUAL Client
 
 Build the package:
 
@@ -279,7 +292,7 @@ Then run `Refresh once` to test a single download, followed by `Start dashboard`
 
 If you used the UI pairing bundle, unpack the downloaded archive and copy its `dashboard-kindle` directory to `/mnt/us/extensions/dashboard-kindle`; the config file is already filled in.
 
-## 11. Reset Local Runtime Data
+## 12. Reset Local Runtime Data
 
 Stop the server, then remove runtime files:
 

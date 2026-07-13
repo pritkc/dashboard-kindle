@@ -249,6 +249,50 @@ test("device management supports policy presets, forced refresh, token rotation,
   assert.equal(revokedFetch.status, 401);
 });
 
+test("dashboard management supports duplicate, archive, export, import, and safe delete", async (t) => {
+  const state = await bootstrapState(loadState());
+  const server = createAppServer(state);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const suffix = Date.now().toString(36);
+
+  const duplicate = await postJson(`${base}/api/v1/dashboards/work/duplicate`, {
+    id: `work-copy-${suffix}`,
+    name: "Work Copy"
+  });
+  assert.equal(duplicate.dashboard.name, "Work Copy");
+  assert.equal(duplicate.dashboard.archived, false);
+
+  const archived = await postJson(`${base}/api/v1/dashboards/${duplicate.dashboard.id}/archive`, { archived: true });
+  assert.equal(archived.archived, true);
+  const restored = await postJson(`${base}/api/v1/dashboards/${duplicate.dashboard.id}/archive`, { archived: false });
+  assert.equal(restored.archived, false);
+
+  const exported = await getJson(`${base}/api/v1/dashboards/${duplicate.dashboard.id}/export`);
+  assert.equal(exported.kind, "dashboard-kindle.dashboard");
+  assert.equal(exported.dashboard.name, "Work Copy");
+
+  const imported = await postJson(`${base}/api/v1/dashboards/import`, {
+    id: `imported-${suffix}`,
+    dashboard: exported.dashboard
+  });
+  assert.equal(imported.dashboard.id, `imported-${suffix}`);
+  assert.equal(imported.dashboard.name, "Work Copy");
+
+  const deleteAssigned = await fetch(`${base}/api/v1/dashboards/work`, {
+    method: "DELETE",
+    headers: adminHeaders
+  });
+  assert.equal(deleteAssigned.status, 409);
+
+  const deleted = await deleteJson(`${base}/api/v1/dashboards/${duplicate.dashboard.id}`);
+  assert.equal(deleted.deleted, true);
+  const dashboards = await getJson(`${base}/api/v1/dashboards`);
+  assert.equal(dashboards.some((dashboard) => dashboard.id === duplicate.dashboard.id), false);
+  assert.equal(dashboards.some((dashboard) => dashboard.id === imported.dashboard.id), true);
+});
+
 test("backup and restore scripts operate on state", async () => {
   const state = await bootstrapState(loadState());
   assert.ok(Object.keys(state.renderArtifacts).length >= 3);
@@ -274,6 +318,17 @@ async function patchJson(url, body) {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...adminHeaders },
     body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    assert.fail(`${response.status} ${await response.text()}`);
+  }
+  return response.json();
+}
+
+async function deleteJson(url) {
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: adminHeaders
   });
   if (!response.ok) {
     assert.fail(`${response.status} ${await response.text()}`);

@@ -37,6 +37,29 @@
           <div id="dashboards" class="list"></div>
         </section>
         <section>
+          <h2>Dashboard Management</h2>
+          <label>
+            Dashboard name
+            <input id="dashboardName" type="text" placeholder="Kitchen display">
+          </label>
+          <div class="buttonRow">
+            <button id="renameDashboard">Rename</button>
+            <button id="duplicateDashboard" class="secondary">Duplicate</button>
+          </div>
+          <div class="buttonRow">
+            <button id="archiveDashboard" class="secondary">Archive</button>
+            <button id="deleteDashboard" class="secondary danger">Delete</button>
+          </div>
+          <div class="buttonRow">
+            <button id="exportDashboard" class="secondary">Export</button>
+            <button id="importDashboard">Import</button>
+          </div>
+          <label>
+            Import/export JSON
+            <textarea id="dashboardImportExport" class="smallTextarea"></textarea>
+          </label>
+        </section>
+        <section>
           <h2>Templates</h2>
           <label>
             Template
