@@ -1,7 +1,9 @@
 const state = {
   data: null,
   templates: [],
+  refreshPresets: [],
   dashboardId: "work",
+  managedDeviceId: null,
   authenticated: false,
   busy: false
 };
@@ -101,12 +103,14 @@ async function refresh() {
 }
 
 async function loadControlPlaneState() {
-  const [data, templates] = await Promise.all([
+  const [data, templates, refreshPresets] = await Promise.all([
     api("/api/v1/state"),
-    api("/api/v1/dashboard-templates")
+    api("/api/v1/dashboard-templates"),
+    api("/api/v1/refresh-presets")
   ]);
   state.data = data;
   state.templates = templates;
+  state.refreshPresets = refreshPresets;
 }
 
 async function reloadState(statusMessage) {
@@ -129,6 +133,7 @@ function render() {
   renderSources();
   renderSourceWizard();
   renderDevices();
+  renderDeviceManagement();
   renderPairingDefaults();
   renderSelects();
   renderInspector();
@@ -204,13 +209,80 @@ function renderDevices() {
   $("devices").innerHTML = state.data.devices.map((device) => {
     const assignment = state.data.assignments[device.id];
     const checkin = state.data.deviceCheckins[device.id];
+    const status = device.revokedAt ? "revoked" : isDeviceOnline(checkin) ? "online" : "offline";
     return `<div class="item">
       <strong>${escapeHtml(device.name)}</strong>
-      <span>${escapeHtml(device.profile.name)} · ${escapeHtml(assignment?.dashboardId ?? "unassigned")}</span>
+      <span>${escapeHtml(device.profile.name)} · ${escapeHtml(assignment?.dashboardId ?? "unassigned")} · ${status}</span>
       <span>${escapeHtml(checkin?.lastSeenAt ? `last seen ${checkin.lastSeenAt}` : "not seen yet")}</span>
     </div>`;
   }).join("");
 }
+
+function renderDeviceManagement() {
+  const devices = state.data.devices;
+  if (!devices.find((device) => device.id === state.managedDeviceId)) {
+    state.managedDeviceId = devices[0]?.id ?? null;
+  }
+  $("managedDeviceSelect").innerHTML = devices.map((device) => `<option value="${device.id}">${escapeHtml(device.name)}</option>`).join("");
+  if (state.managedDeviceId) $("managedDeviceSelect").value = state.managedDeviceId;
+  $("devicePreset").innerHTML = [
+    `<option value="custom">Custom</option>`,
+    ...state.refreshPresets.map((preset) => `<option value="${preset.id}">${escapeHtml(preset.label)}</option>`)
+  ].join("");
+  const device = currentManagedDevice();
+  if (!device) {
+    $("deviceManagement").innerHTML = "<span>No devices enrolled yet.</span>";
+    return;
+  }
+  const checkin = state.data.deviceCheckins[device.id];
+  const command = state.data.deviceCommands?.[device.id];
+  const assignment = state.data.assignments[device.id];
+  const policy = device.pollPolicy ?? {};
+  $("devicePreset").value = policy.preset ?? "custom";
+  $("devicePollInterval").value = String(selectPollOption(policy.maxIntervalSeconds ?? 300));
+  $("fullRefreshInterval").value = policy.fullRefreshInterval ?? device.profile?.fullRefreshInterval ?? 8;
+  $("quietHoursEnabled").checked = Boolean(policy.quietHours?.enabled);
+  $("quietHoursStart").value = policy.quietHours?.start ?? "22:00";
+  $("quietHoursEnd").value = policy.quietHours?.end ?? "06:00";
+  const currentArtifact = checkin?.currentArtifactId ? state.data.renderArtifacts.find((artifact) => artifact.id === checkin.currentArtifactId) : null;
+  $("deviceManagement").innerHTML = `
+    <strong>${escapeHtml(device.name)}</strong>
+    <span>${escapeHtml(device.revokedAt ? "revoked" : isDeviceOnline(checkin) ? "online" : "offline")} · token ${device.revokedAt ? "revoked" : device.tokenRotatedAt ? `rotated ${device.tokenRotatedAt}` : "active"}</span>
+    <span>Assigned: ${escapeHtml(assignment?.dashboardId ?? "unassigned")}</span>
+    <span>Current image: ${escapeHtml(currentArtifact?.imageHash?.slice(0, 12) ?? "none")}</span>
+    <span>Last refresh: ${escapeHtml(checkin?.lastSeenAt ?? "never")}</span>
+    <span>Next poll: ${escapeHtml(checkin?.nextPollSeconds ? `${checkin.nextPollSeconds}s` : "unknown")}</span>
+    <span>Screen: ${escapeHtml(device.profile?.name ?? `${device.profile?.width}x${device.profile?.height}`)}</span>
+    <span>Pending command: ${escapeHtml(command?.forceRefresh ? "refresh at next poll" : "none")}</span>
+  `;
+}
+
+function currentManagedDevice() {
+  return state.data?.devices.find((device) => device.id === state.managedDeviceId);
+}
+
+function isDeviceOnline(checkin) {
+  if (!checkin?.lastSeenAt) return false;
+  const ageSeconds = (Date.now() - Date.parse(checkin.lastSeenAt)) / 1000;
+  const threshold = Math.max(600, Number(checkin.nextPollSeconds ?? 300) * 2 + 60);
+  return ageSeconds <= threshold;
+}
+
+function selectPollOption(seconds) {
+  const options = [...$("devicePollInterval").options].map((option) => Number(option.value));
+  return options.find((value) => value >= seconds) ?? options[options.length - 1];
+}
+
+function applySelectedPresetToForm() {
+  const preset = state.refreshPresets.find((item) => item.id === $("devicePreset").value);
+  if (!preset) return;
+  $("devicePollInterval").value = String(selectPollOption(preset.maxIntervalSeconds));
+  $("fullRefreshInterval").value = preset.fullRefreshInterval;
+  $("quietHoursEnabled").checked = Boolean(preset.quietHours?.enabled);
+  $("quietHoursStart").value = preset.quietHours?.start ?? "22:00";
+  $("quietHoursEnd").value = preset.quietHours?.end ?? "06:00";
+}
+
 
 function renderPairingDefaults() {
   if (!$("pairServerUrl").value) $("pairServerUrl").value = window.location.origin;
@@ -459,6 +531,59 @@ async function createPairing() {
   });
 }
 
+async function saveDevicePolicy() {
+  await withAction("Saving device policy", async () => {
+    const device = currentManagedDevice();
+    if (!device) throw new Error("No managed device selected.");
+    const maxIntervalSeconds = Number($("devicePollInterval").value);
+    const preset = $("devicePreset").value;
+    const body = preset === "custom" ? {
+      minIntervalSeconds: Math.min(30, maxIntervalSeconds),
+      maxIntervalSeconds,
+      fullRefreshInterval: Number($("fullRefreshInterval").value),
+      quietHours: {
+        enabled: $("quietHoursEnabled").checked,
+        start: $("quietHoursStart").value,
+        end: $("quietHoursEnd").value
+      }
+    } : { preset };
+    await api(`/api/v1/devices/${device.id}/policy`, {
+      method: "PATCH",
+      body: JSON.stringify(body)
+    });
+    await reloadState("Device refresh policy saved.");
+  });
+}
+
+async function refreshNextPoll() {
+  await withAction("Requesting device refresh", async () => {
+    const device = currentManagedDevice();
+    if (!device) throw new Error("No managed device selected.");
+    await api(`/api/v1/devices/${device.id}/refresh-next-poll`, { method: "POST" });
+    await reloadState("Device will redraw at its next poll.");
+  });
+}
+
+async function rotateDeviceTokenAction() {
+  await withAction("Rotating device token", async () => {
+    const device = currentManagedDevice();
+    if (!device) throw new Error("No managed device selected.");
+    const result = await api(`/api/v1/devices/${device.id}/rotate-token`, { method: "POST" });
+    window.alert(`Device token shown once:\n${result.token}`);
+    await reloadState("Device token rotated. Update the device config before its next poll.");
+  });
+}
+
+async function revokeDeviceAction() {
+  const device = currentManagedDevice();
+  if (!device) return;
+  if (!window.confirm(`Revoke ${device.name}? It will stop receiving dashboard images until its token is rotated.`)) return;
+  await withAction("Revoking device", async () => {
+    await api(`/api/v1/devices/${device.id}/revoke`, { method: "POST" });
+    await reloadState("Device revoked.");
+  });
+}
+
 async function assign() {
   await withAction("Assigning dashboard", async () => {
     const deviceId = $("deviceSelect").value;
@@ -522,14 +647,20 @@ function updateButtons() {
     "completeSetup",
     "cloneTemplate",
     "runDueSources",
+    "saveDevicePolicy",
+    "refreshNextPoll",
+    "rotateDeviceToken",
+    "revokeDevice",
     "testSource",
     "saveSource",
     "createPairing"
   ]);
+  const deviceActionButtons = new Set(["saveDevicePolicy", "refreshNextPoll", "rotateDeviceToken", "revokeDevice"]);
   for (const button of document.querySelectorAll("button")) {
     button.disabled = state.busy ||
       (protectedButtons.has(button.id) && !state.authenticated) ||
-      (button.id === "completeSetup" && Boolean(state.data?.setup?.completed));
+      (button.id === "completeSetup" && Boolean(state.data?.setup?.completed)) ||
+      (deviceActionButtons.has(button.id) && !currentManagedDevice());
   }
 }
 
@@ -573,7 +704,16 @@ $("publish").addEventListener("click", publish);
 $("render").addEventListener("click", renderCurrent);
 $("enroll").addEventListener("click", enroll);
 $("createPairing").addEventListener("click", createPairing);
+$("saveDevicePolicy").addEventListener("click", saveDevicePolicy);
+$("refreshNextPoll").addEventListener("click", refreshNextPoll);
+$("rotateDeviceToken").addEventListener("click", rotateDeviceTokenAction);
+$("revokeDevice").addEventListener("click", revokeDeviceAction);
 $("assign").addEventListener("click", assign);
+$("managedDeviceSelect").addEventListener("change", (event) => {
+  state.managedDeviceId = event.target.value;
+  renderDeviceManagement();
+});
+$("devicePreset").addEventListener("change", applySelectedPresetToForm);
 $("dashboardSelect").addEventListener("change", (event) => {
   state.dashboardId = event.target.value;
   render();

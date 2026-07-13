@@ -93,6 +93,53 @@
           <button id="enroll">Enroll simulator</button>
         </section>
         <section>
+          <h2>Device Management</h2>
+          <label>
+            Managed device
+            <select id="managedDeviceSelect"></select>
+          </label>
+          <div id="deviceManagement" class="deviceManagement"></div>
+          <label>
+            Refresh preset
+            <select id="devicePreset"></select>
+          </label>
+          <label>
+            Device checks for updates every
+            <select id="devicePollInterval">
+              <option value="60">1 minute</option>
+              <option value="300">5 minutes</option>
+              <option value="900">15 minutes</option>
+              <option value="1800">30 minutes</option>
+            </select>
+          </label>
+          <label>
+            Full screen cleanup every
+            <input id="fullRefreshInterval" type="number" min="1" max="1000" step="1">
+          </label>
+          <label class="checkboxRow">
+            <input id="quietHoursEnabled" type="checkbox">
+            Quiet hours
+          </label>
+          <div class="twoCol">
+            <label>
+              Start
+              <input id="quietHoursStart" type="time" value="22:00">
+            </label>
+            <label>
+              End
+              <input id="quietHoursEnd" type="time" value="06:00">
+            </label>
+          </div>
+          <div class="buttonRow">
+            <button id="saveDevicePolicy">Save policy</button>
+            <button id="refreshNextPoll" class="secondary">Refresh at next poll</button>
+          </div>
+          <div class="buttonRow">
+            <button id="rotateDeviceToken" class="secondary">Rotate token</button>
+            <button id="revokeDevice" class="secondary danger">Revoke</button>
+          </div>
+        </section>
+        <section>
           <h2>Pair Device</h2>
           <label>
             Device name

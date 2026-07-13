@@ -34,6 +34,32 @@ const adminToken = process.env.DASHBOARD_KINDLE_ADMIN_TOKEN ?? (loopbackHost ? "
 const adminCookieName = "dashboard_kindle_admin";
 const dashboardWidgetTypes = new Set(["clock", "metric", "progress", "list", "bars", "status", "alert", "text"]);
 const schedulerTickMs = Number(process.env.DASHBOARD_KINDLE_SCHEDULER_TICK_MS ?? 5000);
+const refreshPresets = {
+  battery_saver: {
+    id: "battery_saver",
+    label: "Battery Saver",
+    minIntervalSeconds: 300,
+    maxIntervalSeconds: 1800,
+    fullRefreshInterval: 24,
+    quietHours: { enabled: true, start: "22:00", end: "07:00" }
+  },
+  balanced: {
+    id: "balanced",
+    label: "Balanced",
+    minIntervalSeconds: 60,
+    maxIntervalSeconds: 300,
+    fullRefreshInterval: 8,
+    quietHours: { enabled: false, start: "22:00", end: "06:00" }
+  },
+  near_realtime: {
+    id: "near_realtime",
+    label: "Near Real-Time",
+    minIntervalSeconds: 30,
+    maxIntervalSeconds: 60,
+    fullRefreshInterval: 4,
+    quietHours: { enabled: false, start: "22:00", end: "06:00" }
+  }
+};
 
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return;
@@ -52,6 +78,7 @@ function loadEnvFile(filePath) {
 export function loadState() {
   const state = readJson(statePath, null) ?? defaultState();
   state.pairingCodes ??= {};
+  state.deviceCommands ??= {};
   state.setup ??= { completed: false, completedSteps: [] };
   ensureSourceJobs(state);
   ensureInitialRevisions(state);
@@ -380,6 +407,113 @@ function assignDevice(state, deviceId, dashboardId) {
   return state.assignments[deviceId];
 }
 
+function updateDevicePolicy(state, deviceId, input) {
+  const device = state.devices[deviceId];
+  if (!device) throw httpError(404, `Unknown device ${deviceId}`);
+  const current = device.pollPolicy ?? {};
+  const preset = input.preset ? refreshPresets[input.preset] : null;
+  if (input.preset && !preset) throw httpError(400, `Unknown refresh preset ${input.preset}`);
+  const hasCustomFields = ["minIntervalSeconds", "maxIntervalSeconds", "fullRefreshInterval", "quietHours", "timezone"].some((key) => input[key] !== undefined);
+  const next = {
+    ...current,
+    ...(preset ? {
+      minIntervalSeconds: preset.minIntervalSeconds,
+      maxIntervalSeconds: preset.maxIntervalSeconds,
+      fullRefreshInterval: preset.fullRefreshInterval,
+      quietHours: { ...preset.quietHours }
+    } : {}),
+    preset: input.preset ?? (hasCustomFields ? "custom" : current.preset ?? "custom")
+  };
+  if (input.minIntervalSeconds !== undefined) next.minIntervalSeconds = Number(input.minIntervalSeconds);
+  if (input.maxIntervalSeconds !== undefined) next.maxIntervalSeconds = Number(input.maxIntervalSeconds);
+  if (input.fullRefreshInterval !== undefined) next.fullRefreshInterval = Number(input.fullRefreshInterval);
+  if (input.timezone !== undefined) next.timezone = String(input.timezone);
+  if (input.quietHours !== undefined) next.quietHours = validateQuietHours(input.quietHours);
+  validatePollPolicy(next);
+  device.pollPolicy = next;
+  audit(state, "device.policy.updated", { deviceId, preset: next.preset, minIntervalSeconds: next.minIntervalSeconds, maxIntervalSeconds: next.maxIntervalSeconds });
+  return withoutToken(device);
+}
+
+function validatePollPolicy(policy) {
+  for (const [key, minimum, maximum] of [
+    ["minIntervalSeconds", 5, 86400],
+    ["maxIntervalSeconds", 5, 86400],
+    ["fullRefreshInterval", 1, 1000]
+  ]) {
+    const value = Number(policy[key]);
+    if (!Number.isFinite(value) || value < minimum || value > maximum) throw httpError(400, `Device policy ${key} must be between ${minimum} and ${maximum}`);
+    policy[key] = Math.round(value);
+  }
+  if (policy.minIntervalSeconds > policy.maxIntervalSeconds) throw httpError(400, "Device checks minimum must not exceed maximum");
+  policy.quietHours = validateQuietHours(policy.quietHours ?? { enabled: false, start: "22:00", end: "06:00" });
+  policy.timezone = policy.timezone || "America/Los_Angeles";
+}
+
+function validateQuietHours(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw httpError(400, "Quiet hours must be an object");
+  const quietHours = {
+    enabled: Boolean(value.enabled),
+    start: String(value.start ?? "22:00"),
+    end: String(value.end ?? "06:00")
+  };
+  if (!/^\d{2}:\d{2}$/.test(quietHours.start) || !/^\d{2}:\d{2}$/.test(quietHours.end)) throw httpError(400, "Quiet hours start and end must use HH:MM");
+  for (const key of ["start", "end"]) {
+    const [hour, minute] = quietHours[key].split(":").map(Number);
+    if (hour > 23 || minute > 59) throw httpError(400, "Quiet hours must be valid 24-hour times");
+  }
+  return quietHours;
+}
+
+function requestDeviceRefresh(state, deviceId) {
+  const device = state.devices[deviceId];
+  if (!device) throw httpError(404, `Unknown device ${deviceId}`);
+  if (device.revokedAt) throw httpError(400, "Cannot request refresh for a revoked device");
+  state.deviceCommands ??= {};
+  state.deviceCommands[deviceId] = {
+    ...(state.deviceCommands[deviceId] ?? {}),
+    forceRefresh: true,
+    requestedAt: nowIso()
+  };
+  audit(state, "device.refresh_requested", { deviceId });
+  return publicDeviceCommand(state.deviceCommands[deviceId]);
+}
+
+function rotateDeviceToken(state, deviceId) {
+  const device = state.devices[deviceId];
+  if (!device) throw httpError(404, `Unknown device ${deviceId}`);
+  const token = createDeviceToken();
+  device.tokenHash = hashDeviceToken(token);
+  device.revokedAt = null;
+  device.tokenRotatedAt = nowIso();
+  state.deviceCommands ??= {};
+  delete state.deviceCommands[deviceId];
+  audit(state, "device.token_rotated", { deviceId });
+  return { device: withoutToken(device), token };
+}
+
+function revokeDevice(state, deviceId) {
+  const device = state.devices[deviceId];
+  if (!device) throw httpError(404, `Unknown device ${deviceId}`);
+  device.revokedAt = nowIso();
+  state.deviceCommands ??= {};
+  delete state.deviceCommands[deviceId];
+  audit(state, "device.revoked", { deviceId });
+  return withoutToken(device);
+}
+
+function publicDeviceCommand(command) {
+  if (!command) return null;
+  return {
+    forceRefresh: Boolean(command.forceRefresh),
+    requestedAt: command.requestedAt ?? null
+  };
+}
+
+function publicDeviceCommands(state) {
+  return Object.fromEntries(Object.entries(state.deviceCommands ?? {}).map(([deviceId, command]) => [deviceId, publicDeviceCommand(command)]));
+}
+
 function createConnectorInstance(state, input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw httpError(400, "Source input must be an object");
   const connectorId = input.connectorId;
@@ -574,22 +708,27 @@ function getDeviceDisplay(state, request) {
   const assignment = state.assignments[device.id];
   if (!assignment) throw httpError(404, "Device has no dashboard assignment");
   const artifact = renderDashboard(state, assignment.dashboardId, device.profile);
+  const command = state.deviceCommands?.[device.id];
+  const forceRefresh = Boolean(command?.forceRefresh);
   const wakeDecision = calculateWakeDecision(device.pollPolicy, {
     nowMs: Date.now(),
     nextClockBoundaryMs: Date.now() + 60_000,
     sourceValidityDeadlineMs: Math.min(...Object.values(state.snapshots).map((snapshot) => Date.parse(snapshot.validUntil)).filter(Number.isFinite)),
     changeCount: (state.deviceCheckins[device.id]?.successes ?? 0) + 1
   });
+  if (forceRefresh) wakeDecision.fullRefresh = true;
   state.deviceCheckins[device.id] = {
     deviceId: device.id,
     lastSeenAt: nowIso(),
     currentArtifactId: artifact.id,
     currentImageHash: artifact.imageHash,
     nextPollSeconds: wakeDecision.nextPollSeconds,
+    forcedRefreshAt: forceRefresh ? nowIso() : state.deviceCheckins[device.id]?.forcedRefreshAt,
     successes: (state.deviceCheckins[device.id]?.successes ?? 0) + 1
   };
+  if (forceRefresh) delete state.deviceCommands[device.id];
   const ifNoneMatch = String(request.headers["if-none-match"] ?? "").replaceAll('"', "");
-  if (ifNoneMatch === artifact.imageHash) {
+  if (ifNoneMatch === artifact.imageHash && !forceRefresh) {
     return {
       status: 304,
       headers: {
@@ -764,6 +903,7 @@ async function route(request, response, state) {
   }
   if (request.method === "GET" && url.pathname === "/api/v1/state") return sendJson(response, 200, publicState(state));
   if (request.method === "GET" && url.pathname === "/api/v1/connectors/manifests") return sendJson(response, 200, Object.values(state.connectorManifests));
+  if (request.method === "GET" && url.pathname === "/api/v1/refresh-presets") return sendJson(response, 200, Object.values(refreshPresets));
   if (request.method === "GET" && url.pathname === "/api/v1/scheduler") {
     return sendJson(response, 200, schedulerStatus(state));
   }
@@ -938,6 +1078,31 @@ async function route(request, response, state) {
     saveState(state);
     return sendJson(response, 200, assignment);
   }
+  if (request.method === "PATCH" && url.pathname.match(/^\/api\/v1\/devices\/[^/]+\/policy$/)) {
+    const deviceId = url.pathname.split("/")[4];
+    const body = await readBody(request);
+    const device = updateDevicePolicy(state, deviceId, body);
+    saveState(state);
+    return sendJson(response, 200, device);
+  }
+  if (request.method === "POST" && url.pathname.match(/^\/api\/v1\/devices\/[^/]+\/refresh-next-poll$/)) {
+    const deviceId = url.pathname.split("/")[4];
+    const command = requestDeviceRefresh(state, deviceId);
+    saveState(state);
+    return sendJson(response, 202, command);
+  }
+  if (request.method === "POST" && url.pathname.match(/^\/api\/v1\/devices\/[^/]+\/rotate-token$/)) {
+    const deviceId = url.pathname.split("/")[4];
+    const rotation = rotateDeviceToken(state, deviceId);
+    saveState(state);
+    return sendJson(response, 200, rotation);
+  }
+  if (request.method === "POST" && url.pathname.match(/^\/api\/v1\/devices\/[^/]+\/revoke$/)) {
+    const deviceId = url.pathname.split("/")[4];
+    const device = revokeDevice(state, deviceId);
+    saveState(state);
+    return sendJson(response, 200, device);
+  }
   if (request.method === "GET" && url.pathname === "/api/v1/device/display") {
     const display = getDeviceDisplay(state, request);
     saveState(state);
@@ -966,6 +1131,7 @@ async function route(request, response, state) {
       health: "ok",
       sources: state.sourceHealth,
       devices: Object.values(state.devices).map(withoutToken),
+      deviceCommands: publicDeviceCommands(state),
       checkins: state.deviceCheckins,
       artifacts: Object.values(state.renderArtifacts).map((artifact) => ({ ...artifact, imagePath: path.relative(repoPath(), artifact.imagePath) })),
       scheduler: schedulerStatus(state),
@@ -987,6 +1153,7 @@ function publicState(state) {
     renderArtifacts: Object.values(state.renderArtifacts).map((artifact) => ({ ...artifact, imagePath: path.relative(repoPath(), artifact.imagePath), svgPath: path.relative(repoPath(), artifact.svgPath), pgmPath: path.relative(repoPath(), artifact.pgmPath) })),
     devices: Object.values(state.devices).map(withoutToken),
     assignments: state.assignments,
+    deviceCommands: publicDeviceCommands(state),
     deviceCheckins: state.deviceCheckins,
     scheduler: schedulerStatus(state),
     setup: setupStatus(state),

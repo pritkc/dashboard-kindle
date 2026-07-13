@@ -170,7 +170,46 @@ curl -i http://127.0.0.1:8787/api/v1/device/display \
 
 Expected result for an unchanged non-clock dashboard is `304 Not Modified`.
 
-## 7. Use the Simulator
+## 7. Manage Devices and Refresh Behavior
+
+Use **Device Management** in the sidebar after enrolling or pairing a device.
+
+The page shows:
+
+* Online/offline or revoked state
+* Last check-in
+* Assigned dashboard
+* Current image hash
+* Last successful refresh
+* Next poll
+* Screen profile
+* Pending refresh command
+* Token status
+
+Available actions:
+
+* **Save policy**: applies a refresh preset or custom values.
+* **Refresh at next poll**: queues a one-time redraw. If the image hash is unchanged, the server still returns `200 OK` once with `X-Full-Refresh: true`; later unchanged polls return `304 Not Modified` again.
+* **Rotate token**: creates a new device token and invalidates the old token. The new token is shown once.
+* **Revoke**: disables image delivery for that device until a token is rotated.
+
+Refresh concepts are intentionally separate:
+
+* **Update data every**: source connector collection interval.
+* **Rebuild screen when**: manual render/publish action in this build; automatic render triggers remain a planned improvement.
+* **Device checks for updates every**: device polling interval.
+* **Full screen cleanup every**: physical panel full-refresh cadence, measured in changed-image deliveries.
+
+Presets:
+
+| Preset | Device checks | Full cleanup | Quiet hours |
+| --- | --- | --- | --- |
+| Battery Saver | Up to every 30 minutes | Every 24 changed images | 22:00-07:00 |
+| Balanced | Up to every 5 minutes | Every 8 changed images | Off |
+| Near Real-Time | Up to every 1 minute | Every 4 changed images | Off |
+| Custom | User-selected | User-selected | User-selected |
+
+## 8. Use the Simulator
 
 With the server running:
 
@@ -190,7 +229,7 @@ To reuse an existing token:
 DASHBOARD_KINDLE_DEVICE_TOKEN=<device-token> pnpm simulator
 ```
 
-## 8. Kindle Compatibility
+## 9. Kindle Compatibility
 
 Dashboard Kindle’s physical client is a KUAL extension. A stock Kindle cannot run it until the device has a jailbreak and KUAL installed.
 
@@ -208,7 +247,7 @@ Known current limitations:
 * The server/device protocol is tested in simulator and with generated KUAL packages; physical framebuffer behavior still needs hardware validation.
 * Keep the server on a trusted LAN or behind HTTPS. Do not expose port `8787` directly to the public internet.
 
-## 9. Configure Kindle KUAL Client
+## 10. Configure Kindle KUAL Client
 
 Build the package:
 
@@ -240,7 +279,7 @@ Then run `Refresh once` to test a single download, followed by `Start dashboard`
 
 If you used the UI pairing bundle, unpack the downloaded archive and copy its `dashboard-kindle` directory to `/mnt/us/extensions/dashboard-kindle`; the config file is already filled in.
 
-## 10. Reset Local Runtime Data
+## 11. Reset Local Runtime Data
 
 Stop the server, then remove runtime files:
 

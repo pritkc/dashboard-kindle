@@ -186,6 +186,69 @@ test("source scheduler runs due jobs and backs off failures", async (t) => {
   assert.ok(Date.parse(failedJob.nextRunAt) > Date.now());
 });
 
+test("device management supports policy presets, forced refresh, token rotation, and revocation", async (t) => {
+  const state = await bootstrapState(loadState());
+  const server = createAppServer(state);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const enrollment = await postJson(`${base}/api/v1/devices/enroll`, {
+    name: "managed device",
+    capabilities: { profileId: "kindle_basic_600x800" }
+  });
+  await postJson(`${base}/api/v1/devices/${enrollment.device.id}/assign`, { dashboardId: "system" });
+
+  const first = await fetch(`${base}/api/v1/device/display`, {
+    headers: { Authorization: `Bearer ${enrollment.token}` }
+  });
+  assert.equal(first.status, 200);
+  const etag = first.headers.get("etag");
+
+  await postJson(`${base}/api/v1/devices/${enrollment.device.id}/refresh-next-poll`, {});
+  const queued = await getJson(`${base}/api/v1/state`);
+  assert.equal(queued.deviceCommands[enrollment.device.id].forceRefresh, true);
+
+  const forced = await fetch(`${base}/api/v1/device/display`, {
+    headers: {
+      Authorization: `Bearer ${enrollment.token}`,
+      "If-None-Match": etag
+    }
+  });
+  assert.equal(forced.status, 200);
+  assert.equal(forced.headers.get("x-full-refresh"), "true");
+
+  const unchanged = await fetch(`${base}/api/v1/device/display`, {
+    headers: {
+      Authorization: `Bearer ${enrollment.token}`,
+      "If-None-Match": etag
+    }
+  });
+  assert.equal(unchanged.status, 304);
+
+  const policy = await patchJson(`${base}/api/v1/devices/${enrollment.device.id}/policy`, { preset: "battery_saver" });
+  assert.equal(policy.pollPolicy.preset, "battery_saver");
+  assert.equal(policy.pollPolicy.maxIntervalSeconds, 1800);
+
+  const rotation = await postJson(`${base}/api/v1/devices/${enrollment.device.id}/rotate-token`, {});
+  assert.ok(rotation.token);
+  const oldToken = await fetch(`${base}/api/v1/device/display`, {
+    headers: { Authorization: `Bearer ${enrollment.token}` }
+  });
+  assert.equal(oldToken.status, 401);
+  const newToken = await fetch(`${base}/api/v1/device/display`, {
+    headers: { Authorization: `Bearer ${rotation.token}` }
+  });
+  assert.equal(newToken.status, 200);
+
+  const revoked = await postJson(`${base}/api/v1/devices/${enrollment.device.id}/revoke`, {});
+  assert.ok(revoked.revokedAt);
+  const revokedFetch = await fetch(`${base}/api/v1/device/display`, {
+    headers: { Authorization: `Bearer ${rotation.token}` }
+  });
+  assert.equal(revokedFetch.status, 401);
+});
+
 test("backup and restore scripts operate on state", async () => {
   const state = await bootstrapState(loadState());
   assert.ok(Object.keys(state.renderArtifacts).length >= 3);

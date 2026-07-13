@@ -160,6 +160,7 @@ export function defaultState() {
     renderArtifacts: {},
     devices: {},
     pairingCodes: {},
+    deviceCommands: {},
     deviceCheckins: {},
     assignments: {},
     playlists: {
