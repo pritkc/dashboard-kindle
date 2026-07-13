@@ -159,6 +159,7 @@ export function defaultState() {
     dashboardRevisions: {},
     renderArtifacts: {},
     devices: {},
+    pairingCodes: {},
     deviceCheckins: {},
     assignments: {},
     playlists: {

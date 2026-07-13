@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import zlib from "node:zlib";
 import { bootstrapState, createAppServer, loadState } from "../apps/server/src/main.js";
 import { sha256 } from "../packages/domain/src/core.js";
 
@@ -81,6 +82,63 @@ test("dashboard writes reject invalid definitions", async (t) => {
   assert.match(await response.text(), /unknown source/);
 });
 
+test("setup, templates, sources, webhooks, and pairing bundle support guided setup", async (t) => {
+  const state = await bootstrapState(loadState());
+  const server = createAppServer(state);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const suffix = Date.now().toString(36);
+
+  const setup = await getJson(`${base}/api/v1/setup`);
+  assert.equal(setup.nextStep, "complete");
+  assert.ok(setup.steps.some((step) => step.id === "device" && step.done));
+
+  const templates = await getJson(`${base}/api/v1/dashboard-templates`);
+  assert.ok(templates.some((template) => template.id === "clock-status"));
+  const cloned = await postJson(`${base}/api/v1/dashboard-templates/clock-status/clone`, {
+    id: `clock-${suffix}`,
+    name: "Clock test"
+  });
+  assert.equal(cloned.dashboard.name, "Clock test");
+
+  const sourceTest = await postJson(`${base}/api/v1/sources/test`, {
+    connectorId: "static.manual",
+    config: { payload: { metric: 88, alert: "Source wizard works" } }
+  });
+  assert.ok(sourceTest.fields.some((field) => field.path === "$.metric"));
+
+  const webhook = await postJson(`${base}/api/v1/sources`, {
+    id: `hook-${suffix}`,
+    connectorId: "webhook.json",
+    name: "Webhook test",
+    config: { initialPayload: { message: "pending" } }
+  });
+  assert.match(webhook.webhookUrl, /^\/api\/v1\/webhooks\/hook-/);
+  const webhookPost = await fetch(`${base}${webhook.webhookUrl}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: "delivered", count: 2 })
+  });
+  assert.equal(webhookPost.status, 202);
+
+  const pairing = await postJson(`${base}/api/v1/devices/pairing-codes`, {
+    name: "Pairing test",
+    serverUrl: base,
+    capabilities: { profileId: "kindle_basic_600x800" }
+  });
+  const bundle = await fetch(`${base}${pairing.bundleUrl}`);
+  assert.equal(bundle.status, 200);
+  const unpacked = zlib.gunzipSync(Buffer.from(await bundle.arrayBuffer())).toString("utf8");
+  assert.match(unpacked, new RegExp(`SERVER_URL=${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(unpacked, /DEVICE_TOKEN=/);
+
+  const publicState = await getJson(`${base}/api/v1/state`);
+  const publicPairing = publicState.pairingCodes.find((record) => record.code === pairing.code);
+  assert.equal(publicPairing.token, undefined);
+  assert.equal(publicPairing.deviceId, pairing.device.id);
+});
+
 test("backup and restore scripts operate on state", async () => {
   const state = await bootstrapState(loadState());
   assert.ok(Object.keys(state.renderArtifacts).length >= 3);
@@ -95,6 +153,14 @@ async function postJson(url, body) {
     headers: { "Content-Type": "application/json", ...adminHeaders },
     body: JSON.stringify(body)
   });
+  if (!response.ok) {
+    assert.fail(`${response.status} ${await response.text()}`);
+  }
+  return response.json();
+}
+
+async function getJson(url) {
+  const response = await fetch(url, { headers: adminHeaders });
   if (!response.ok) {
     assert.fail(`${response.status} ${await response.text()}`);
   }

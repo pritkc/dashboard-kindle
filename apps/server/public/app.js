@@ -1,5 +1,6 @@
 const state = {
   data: null,
+  templates: [],
   dashboardId: "work",
   authenticated: false,
   busy: false
@@ -79,7 +80,7 @@ async function login(token) {
   state.authenticated = true;
   localStorage.setItem("dashboardKindleAdminToken", token);
   updateAuthUi();
-  state.data = await api("/api/v1/state");
+  await loadControlPlaneState();
   render();
   setStatus("Unlocked.");
 }
@@ -95,12 +96,25 @@ async function logout() {
 
 async function refresh() {
   await withAction("Refreshing state", async () => {
-    state.data = await api("/api/v1/state");
-    state.authenticated = true;
-    updateAuthUi();
-    render();
-    setStatus("State refreshed.");
+    await reloadState("State refreshed.");
   });
+}
+
+async function loadControlPlaneState() {
+  const [data, templates] = await Promise.all([
+    api("/api/v1/state"),
+    api("/api/v1/dashboard-templates")
+  ]);
+  state.data = data;
+  state.templates = templates;
+}
+
+async function reloadState(statusMessage) {
+  await loadControlPlaneState();
+  state.authenticated = true;
+  updateAuthUi();
+  render();
+  if (statusMessage) setStatus(statusMessage);
 }
 
 function render() {
@@ -110,11 +124,26 @@ function render() {
     state.dashboardId = dashboards[0]?.id;
   }
   renderDashboardList();
+  renderSetup();
+  renderTemplates();
   renderSources();
+  renderSourceWizard();
   renderDevices();
+  renderPairingDefaults();
   renderSelects();
   renderInspector();
   renderPreview();
+}
+
+function renderSetup() {
+  const setup = state.data.setup;
+  $("setupChecklist").innerHTML = setup.steps.map((step) => `
+    <div class="item ${step.done ? "done" : ""} ${setup.nextStep === step.id ? "current" : ""}">
+      <strong>${step.done ? "Done" : setup.nextStep === step.id ? "Next" : "Pending"}</strong>
+      <span>${escapeHtml(step.label)}</span>
+    </div>
+  `).join("");
+  $("completeSetup").disabled = state.busy || !state.authenticated || setup.completed;
 }
 
 function renderDashboardList() {
@@ -132,6 +161,14 @@ function renderDashboardList() {
   });
 }
 
+function renderTemplates() {
+  const current = $("templateSelect").value;
+  $("templateSelect").innerHTML = state.templates.map((template) => `
+    <option value="${template.id}">${escapeHtml(template.name)} (${template.preview.profile.width}x${template.preview.profile.height})</option>
+  `).join("");
+  if (state.templates.find((template) => template.id === current)) $("templateSelect").value = current;
+}
+
 function renderSources() {
   $("sources").innerHTML = state.data.connectorInstances.map((source) => {
     const health = state.data.sourceHealth[source.id];
@@ -144,6 +181,17 @@ function renderSources() {
   }).join("");
 }
 
+function renderSourceWizard() {
+  const current = $("sourceConnector").value;
+  $("sourceConnector").innerHTML = state.data.connectorManifests.map((manifest) => `
+    <option value="${manifest.id}">${escapeHtml(manifest.displayName)}</option>
+  `).join("");
+  if (state.data.connectorManifests.find((manifest) => manifest.id === current)) {
+    $("sourceConnector").value = current;
+  }
+  if (!$("sourceConfig").value.trim()) fillSourceConfig();
+}
+
 function renderDevices() {
   $("devices").innerHTML = state.data.devices.map((device) => {
     const assignment = state.data.assignments[device.id];
@@ -154,6 +202,10 @@ function renderDevices() {
       <span>${escapeHtml(checkin?.lastSeenAt ? `last seen ${checkin.lastSeenAt}` : "not seen yet")}</span>
     </div>`;
   }).join("");
+}
+
+function renderPairingDefaults() {
+  if (!$("pairServerUrl").value) $("pairServerUrl").value = window.location.origin;
 }
 
 function renderSelects() {
@@ -213,9 +265,109 @@ async function collectAll() {
     for (const source of state.data.connectorInstances) {
       await api(`/api/v1/sources/${source.id}/collect`, { method: "POST" });
     }
-    await refresh();
-    setStatus("Sources collected.");
+    await reloadState("Sources collected.");
   });
+}
+
+async function completeSetup() {
+  await withAction("Completing setup", async () => {
+    await api("/api/v1/setup/complete", { method: "POST" });
+    await reloadState("Setup marked complete.");
+  });
+}
+
+async function cloneTemplate() {
+  await withAction("Creating dashboard from template", async () => {
+    const templateId = $("templateSelect").value;
+    const name = $("templateName").value.trim();
+    const result = await api(`/api/v1/dashboard-templates/${templateId}/clone`, {
+      method: "POST",
+      body: JSON.stringify(name ? { name } : {})
+    });
+    state.dashboardId = result.dashboard.id;
+    $("templateName").value = "";
+    await reloadState("Dashboard created from template.");
+  });
+}
+
+async function testSource() {
+  await withAction("Testing source", async () => {
+    const result = await api("/api/v1/sources/test", {
+      method: "POST",
+      body: JSON.stringify(sourceInput())
+    });
+    renderSourceFields(result.fields);
+    setStatus(`Source test succeeded. Snapshot ${result.snapshot.id}.`);
+  });
+}
+
+async function saveSource() {
+  await withAction("Saving source", async () => {
+    const result = await api("/api/v1/sources", {
+      method: "POST",
+      body: JSON.stringify(sourceInput())
+    });
+    renderSourceFields(result.snapshot ? dataFieldsFromSnapshot(result.snapshot) : []);
+    await reloadState();
+    const webhookText = result.webhookUrl ? ` Webhook URL: ${result.webhookUrl}` : "";
+    setStatus(`Source saved.${webhookText}`);
+  });
+}
+
+function sourceInput() {
+  const id = $("sourceId").value.trim();
+  const name = $("sourceName").value.trim();
+  return {
+    connectorId: $("sourceConnector").value,
+    ...(id ? { id } : {}),
+    ...(name ? { name } : {}),
+    config: parseJson($("sourceConfig").value, "Source configuration JSON")
+  };
+}
+
+function fillSourceConfig() {
+  const manifest = state.data?.connectorManifests.find((item) => item.id === $("sourceConnector").value);
+  if (!manifest) return;
+  $("sourceConfig").value = JSON.stringify(defaultConnectorConfig(manifest), null, 2);
+}
+
+function defaultConnectorConfig(manifest) {
+  if (manifest.id === "static.manual") return { payload: { metric: 73, alert: "All systems nominal" } };
+  if (manifest.id === "http.json") return { url: "fixture://http" };
+  if (manifest.id === "webhook.json") return { initialPayload: { message: "Waiting for first webhook payload" } };
+  if (manifest.id === "rss.atom") return { url: "https://hnrss.org/frontpage" };
+  const config = {};
+  for (const [key, definition] of Object.entries(manifest.configSchema?.properties ?? {})) {
+    if (!(manifest.configSchema?.required ?? []).includes(key)) continue;
+    config[key] = defaultValueForSchema(definition);
+  }
+  return config;
+}
+
+function defaultValueForSchema(definition) {
+  if (definition.type === "object") return {};
+  if (definition.type === "array") return [];
+  if (definition.type === "boolean") return false;
+  if (definition.type === "number") return 0;
+  return "";
+}
+
+function renderSourceFields(fields) {
+  $("sourceFields").innerHTML = fields.length ? fields.map((field) => `
+    <div class="fieldItem">
+      <code>${escapeHtml(field.path)}</code>
+      <span>${escapeHtml(field.type)} · ${escapeHtml(field.sample)}</span>
+    </div>
+  `).join("") : `<div class="fieldItem"><span>No fields found in the sample payload.</span></div>`;
+}
+
+function dataFieldsFromSnapshot(snapshot) {
+  if (!snapshot?.payload || typeof snapshot.payload !== "object") return [];
+  return Object.entries(snapshot.payload).map(([key, value]) => ({
+    path: `$.${key}`,
+    type: Array.isArray(value) ? "array" : typeof value,
+    sample: Array.isArray(value) ? `${value.length} items` : typeof value === "object" && value ? `${Object.keys(value).length} fields` : value
+  }));
 }
 
 async function publish() {
@@ -226,8 +378,7 @@ async function publish() {
       body: JSON.stringify({ definition })
     });
     await api(`/api/v1/dashboards/${state.dashboardId}/publish`, { method: "POST" });
-    await refresh();
-    setStatus("Dashboard revision published.");
+    await reloadState("Dashboard revision published.");
   });
 }
 
@@ -238,8 +389,7 @@ async function renderCurrent() {
       method: "POST",
       body: JSON.stringify({ profileOverrides: selectedProfile ?? {} })
     });
-    await refresh();
-    setStatus("Processed e-ink PNG rendered.");
+    await reloadState("Processed e-ink PNG rendered.");
   });
 }
 
@@ -250,8 +400,28 @@ async function enroll() {
       body: JSON.stringify({ name: "Browser simulator", capabilities: { profileId: "kindle_basic_600x800" } })
     });
     window.alert(`Device enrolled. Token shown once:\n${enrollment.token}`);
-    await refresh();
-    setStatus("Simulator device enrolled.");
+    await reloadState("Simulator device enrolled.");
+  });
+}
+
+async function createPairing() {
+  await withAction("Creating device pairing bundle", async () => {
+    const result = await api("/api/v1/devices/pairing-codes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: $("pairDeviceName").value.trim() || "Kindle",
+        serverUrl: $("pairServerUrl").value.trim() || window.location.origin,
+        capabilities: { profileId: $("pairDeviceProfile").value }
+      })
+    });
+    const href = new URL(result.bundleUrl, window.location.origin).toString();
+    $("pairingResult").innerHTML = `
+      <div><strong>Code:</strong> ${escapeHtml(result.code)}</div>
+      <div><strong>Expires:</strong> ${escapeHtml(result.expiresAt)}</div>
+      <a href="${escapeHtml(href)}">Download preconfigured KUAL bundle</a>
+    `;
+    await reloadState();
+    setStatus("Pairing bundle created. Install it under /mnt/us/extensions on the Kindle.");
   });
 }
 
@@ -262,8 +432,7 @@ async function assign() {
       method: "POST",
       body: JSON.stringify({ dashboardId: state.dashboardId })
     });
-    await refresh();
-    setStatus("Dashboard assigned to device.");
+    await reloadState("Dashboard assigned to device.");
   });
 }
 
@@ -277,9 +446,17 @@ async function bootstrap() {
 
 function parseDefinition() {
   try {
-    return JSON.parse($("definition").value);
+    return parseJson($("definition").value, "Dashboard JSON");
   } catch (error) {
-    throw new Error(`Dashboard JSON is invalid: ${error.message}`);
+    throw new Error(error.message);
+  }
+}
+
+function parseJson(text, label) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${label} is invalid: ${error.message}`);
   }
 }
 
@@ -299,9 +476,25 @@ async function withAction(message, action) {
 }
 
 function updateButtons() {
-  const protectedButtons = new Set(["bootstrap", "refresh", "collect", "publish", "render", "enroll", "assign", "logout"]);
+  const protectedButtons = new Set([
+    "bootstrap",
+    "refresh",
+    "collect",
+    "publish",
+    "render",
+    "enroll",
+    "assign",
+    "logout",
+    "completeSetup",
+    "cloneTemplate",
+    "testSource",
+    "saveSource",
+    "createPairing"
+  ]);
   for (const button of document.querySelectorAll("button")) {
-    button.disabled = state.busy || (protectedButtons.has(button.id) && !state.authenticated);
+    button.disabled = state.busy ||
+      (protectedButtons.has(button.id) && !state.authenticated) ||
+      (button.id === "completeSetup" && Boolean(state.data?.setup?.completed));
   }
 }
 
@@ -335,16 +528,22 @@ $("loginForm").addEventListener("submit", async (event) => {
 $("logout").addEventListener("click", logout);
 $("refresh").addEventListener("click", refresh);
 $("bootstrap").addEventListener("click", bootstrap);
+$("completeSetup").addEventListener("click", completeSetup);
+$("cloneTemplate").addEventListener("click", cloneTemplate);
+$("testSource").addEventListener("click", testSource);
+$("saveSource").addEventListener("click", saveSource);
 $("collect").addEventListener("click", collectAll);
 $("publish").addEventListener("click", publish);
 $("render").addEventListener("click", renderCurrent);
 $("enroll").addEventListener("click", enroll);
+$("createPairing").addEventListener("click", createPairing);
 $("assign").addEventListener("click", assign);
 $("dashboardSelect").addEventListener("change", (event) => {
   state.dashboardId = event.target.value;
   render();
 });
 $("profileSelect").addEventListener("change", renderCurrent);
+$("sourceConnector").addEventListener("change", fillSourceConfig);
 
 updateAuthUi();
 const savedToken = localStorage.getItem("dashboardKindleAdminToken");

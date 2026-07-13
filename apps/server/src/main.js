@@ -1,6 +1,8 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
+import crypto from "node:crypto";
 import { URL } from "node:url";
 import {
   createDashboardRevision,
@@ -26,6 +28,7 @@ const port = Number(process.env.DASHBOARD_KINDLE_PORT ?? 8787);
 const dataDir = path.resolve(process.env.DASHBOARD_KINDLE_DATA_DIR ?? repoPath("data"));
 const statePath = path.join(dataDir, "state.json");
 const publicDir = repoPath("apps/server/public");
+const kindleClientDir = repoPath("clients/kindle-kual/dashboard-kindle");
 const loopbackHost = host === "127.0.0.1" || host === "localhost" || host === "::1";
 const adminToken = process.env.DASHBOARD_KINDLE_ADMIN_TOKEN ?? (loopbackHost ? "dev-admin-token" : "");
 const adminCookieName = "dashboard_kindle_admin";
@@ -47,6 +50,8 @@ function loadEnvFile(filePath) {
 
 export function loadState() {
   const state = readJson(statePath, null) ?? defaultState();
+  state.pairingCodes ??= {};
+  state.setup ??= { completed: false, completedSteps: [] };
   ensureInitialRevisions(state);
   return state;
 }
@@ -184,6 +189,190 @@ function assignDevice(state, deviceId, dashboardId) {
   return state.assignments[deviceId];
 }
 
+function createConnectorInstance(state, input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw httpError(400, "Source input must be an object");
+  const connectorId = input.connectorId;
+  const manifest = state.connectorManifests[connectorId];
+  if (!manifest) throw httpError(400, `Unknown connector ${connectorId}`);
+  const id = input.id ?? `source-${sha256(`${connectorId}:${input.name ?? ""}:${Date.now()}`).slice(0, 8)}`;
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw httpError(400, "Source id may only contain letters, numbers, underscores, and dashes");
+  if (state.connectorInstances[id]) throw httpError(409, `Source ${id} already exists`);
+  const config = input.config ?? {};
+  validateJsonSchema(config, manifest.configSchema, `Source ${id} configuration`);
+  const instance = {
+    id,
+    connectorId,
+    connectorVersion: manifest.version,
+    outputSchemaVersion: manifest.outputSchemaVersion,
+    name: input.name || manifest.displayName,
+    config,
+    validForSeconds: input.validForSeconds ?? manifest.defaultCollectionIntervalSeconds * 3,
+    timeoutMs: manifest.timeoutMs
+  };
+  state.connectorInstances[id] = instance;
+  audit(state, "source.created", { sourceId: id, connectorId });
+  return instance;
+}
+
+function validateJsonSchema(value, schema, label) {
+  if (!schema) return;
+  if (schema.type === "object" && (!value || typeof value !== "object" || Array.isArray(value))) throw httpError(400, `${label} must be an object`);
+  for (const key of schema.required ?? []) {
+    if (value[key] === undefined) throw httpError(400, `${label} is missing required field ${key}`);
+  }
+  for (const [key, definition] of Object.entries(schema.properties ?? {})) {
+    if (value[key] === undefined) continue;
+    if (definition.enum && !definition.enum.includes(value[key])) throw httpError(400, `${label}.${key} must be one of ${definition.enum.join(", ")}`);
+    if (definition.type && !matchesJsonType(value[key], definition.type)) throw httpError(400, `${label}.${key} must be ${definition.type}`);
+  }
+}
+
+function matchesJsonType(value, type) {
+  if (type === "array") return Array.isArray(value);
+  if (type === "object") return value && typeof value === "object" && !Array.isArray(value);
+  if (type === "boolean") return typeof value === "boolean";
+  if (type === "string") return typeof value === "string";
+  if (type === "number") return typeof value === "number" && Number.isFinite(value);
+  return true;
+}
+
+function dashboardTemplates() {
+  const profile = { width: 800, height: 600, palette: "monochrome", dither: "threshold", contrast: 1.1, gamma: 1 };
+  return [
+    {
+      id: "blank",
+      name: "Blank custom dashboard",
+      description: "A clean starting point with one editable status widget.",
+      definition: {
+        name: "Blank custom dashboard",
+        profile,
+        widgets: [
+          { id: "note", type: "text", title: "Note", x: 24, y: 24, w: 752, h: 160, sourceId: "manual", expression: "$.alert" }
+        ]
+      }
+    },
+    {
+      id: "clock-status",
+      name: "Clock and status",
+      description: "Large clock, date, one metric, and a status message.",
+      definition: {
+        name: "Clock and status",
+        profile: { ...profile, width: 600, height: 800 },
+        widgets: [
+          { id: "clock", type: "clock", title: "Now", x: 28, y: 32, w: 544, h: 230, sourceId: "manual", expression: "$" },
+          { id: "metric", type: "metric", title: "Metric", x: 28, y: 300, w: 260, h: 180, sourceId: "manual", expression: "$.metric", suffix: "%" },
+          { id: "status", type: "alert", title: "Status", x: 312, y: 300, w: 260, h: 180, sourceId: "manual", expression: "$.alert" }
+        ]
+      }
+    },
+    {
+      id: "activity-work",
+      name: "Work and activity",
+      description: "Codex usage, ActivityWatch time, top apps, and source health.",
+      definition: defaultState().dashboards.work.draft
+    },
+    {
+      id: "rss-news",
+      name: "News/RSS",
+      description: "A feed-oriented list dashboard ready for an RSS source.",
+      definition: {
+        name: "News/RSS",
+        profile,
+        widgets: [
+          { id: "headline", type: "status", title: "Feed title", x: 24, y: 24, w: 752, h: 110, sourceId: "httpfixture", expression: "$.message" },
+          { id: "items", type: "list", title: "Latest entries", x: 24, y: 158, w: 752, h: 398, sourceId: "activitywatch", expression: "$.topApplications" }
+        ]
+      }
+    }
+  ];
+}
+
+function createPairingCode(state, input, request) {
+  cleanupPairingCodes(state);
+  const enrollment = enrollDevice(state, input);
+  const code = createPairingCodeValue();
+  const serverUrl = input.serverUrl ?? publicBaseUrl(request);
+  state.pairingCodes[code] = {
+    code,
+    deviceId: enrollment.device.id,
+    token: enrollment.token,
+    serverUrl,
+    createdAt: nowIso(),
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString()
+  };
+  audit(state, "device.pairing_code.created", { deviceId: enrollment.device.id, code });
+  return { code, expiresAt: state.pairingCodes[code].expiresAt, device: enrollment.device, bundleUrl: `/api/v1/pairing/${code}/kual-bundle.tgz` };
+}
+
+function createPairingCodeValue() {
+  return Array.from(crypto.randomBytes(5))
+    .map((byte) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[byte % 32])
+    .join("");
+}
+
+function cleanupPairingCodes(state) {
+  const now = Date.now();
+  for (const [code, record] of Object.entries(state.pairingCodes ?? {})) {
+    if (Date.parse(record.expiresAt) <= now) delete state.pairingCodes[code];
+  }
+}
+
+function publicBaseUrl(request) {
+  const proto = request.headers["x-forwarded-proto"] ?? "http";
+  const hostHeader = request.headers["x-forwarded-host"] ?? request.headers.host;
+  return `${proto}://${hostHeader}`;
+}
+
+function pairingBundle(state, code) {
+  cleanupPairingCodes(state);
+  const record = state.pairingCodes?.[code];
+  if (!record) throw httpError(404, "Pairing code is invalid or expired");
+  const files = {
+    "dashboard-kindle/menu.json": fs.readFileSync(path.join(kindleClientDir, "menu.json")),
+    "dashboard-kindle/bin/dashboard-kindle.sh": fs.readFileSync(path.join(kindleClientDir, "bin/dashboard-kindle.sh")),
+    "dashboard-kindle/state/config": Buffer.from(`SERVER_URL=${record.serverUrl}\nDEVICE_TOKEN=${record.token}\nPOLL_SECONDS=300\n`)
+  };
+  return zlib.gzipSync(createTar(files));
+}
+
+function createTar(files) {
+  const chunks = [];
+  for (const [name, content] of Object.entries(files)) {
+    const body = Buffer.isBuffer(content) ? content : Buffer.from(content);
+    chunks.push(tarHeader(name, body.length));
+    chunks.push(body);
+    const padding = (512 - (body.length % 512)) % 512;
+    if (padding) chunks.push(Buffer.alloc(padding));
+  }
+  chunks.push(Buffer.alloc(1024));
+  return Buffer.concat(chunks);
+}
+
+function tarHeader(name, size) {
+  const header = Buffer.alloc(512);
+  writeTarField(header, 0, 100, name);
+  writeTarField(header, 100, 8, "0000755");
+  writeTarField(header, 108, 8, "0000000");
+  writeTarField(header, 116, 8, "0000000");
+  writeTarField(header, 124, 12, size.toString(8).padStart(11, "0"));
+  writeTarField(header, 136, 12, Math.floor(Date.now() / 1000).toString(8).padStart(11, "0"));
+  header.fill(" ", 148, 156);
+  header[156] = "0".charCodeAt(0);
+  writeTarField(header, 257, 6, "ustar");
+  writeTarField(header, 263, 2, "00");
+  let checksum = 0;
+  for (const byte of header) checksum += byte;
+  writeTarField(header, 148, 8, checksum.toString(8).padStart(6, "0"));
+  header[154] = 0;
+  header[155] = 32;
+  return header;
+}
+
+function writeTarField(buffer, offset, length, value) {
+  const text = String(value);
+  buffer.write(text.slice(0, length - 1), offset, "utf8");
+}
+
 function getDeviceDisplay(state, request) {
   const token = parseBearer(request.headers.authorization);
   const device = Object.values(state.devices).find((candidate) => verifyDeviceToken(candidate, token));
@@ -306,6 +495,8 @@ function requireAdmin(request, url) {
   if (request.method === "POST" && url.pathname === "/api/v1/admin/session") return;
   if (request.method === "DELETE" && url.pathname === "/api/v1/admin/session") return;
   if (request.method === "GET" && url.pathname === "/api/v1/device/display") return;
+  if (request.method === "GET" && url.pathname.match(/^\/api\/v1\/pairing\/[^/]+\/kual-bundle\.tgz$/)) return;
+  if (request.method === "POST" && url.pathname.match(/^\/api\/v1\/webhooks\/[^/]+\/[^/]+$/)) return;
   if (!isAuthenticatedAdmin(request)) throw httpError(401, "Administrator authentication required");
 }
 
@@ -379,6 +570,70 @@ async function route(request, response, state) {
   }
   if (request.method === "GET" && url.pathname === "/api/v1/state") return sendJson(response, 200, publicState(state));
   if (request.method === "GET" && url.pathname === "/api/v1/connectors/manifests") return sendJson(response, 200, Object.values(state.connectorManifests));
+  if (request.method === "GET" && url.pathname === "/api/v1/setup") {
+    return sendJson(response, 200, setupStatus(state));
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/setup/complete") {
+    state.setup = { completed: true, completedAt: nowIso(), completedSteps: setupStatus(state).steps.filter((step) => step.done).map((step) => step.id) };
+    saveState(state);
+    return sendJson(response, 200, state.setup);
+  }
+  if (request.method === "GET" && url.pathname === "/api/v1/dashboard-templates") {
+    return sendJson(response, 200, dashboardTemplates().map(({ definition, ...template }) => ({ ...template, preview: { widgets: definition.widgets.length, profile: definition.profile } })));
+  }
+  if (request.method === "POST" && url.pathname.match(/^\/api\/v1\/dashboard-templates\/[^/]+\/clone$/)) {
+    const templateId = url.pathname.split("/")[4];
+    const template = dashboardTemplates().find((item) => item.id === templateId);
+    if (!template) throw httpError(404, "Dashboard template not found");
+    const body = await readBody(request);
+    const id = body.id ?? `${template.id}-${sha256(`${Date.now()}`).slice(0, 6)}`;
+    if (state.dashboards[id]) throw httpError(409, `Dashboard ${id} already exists`);
+    const definition = structuredClone(template.definition);
+    definition.name = body.name ?? template.name;
+    validateDashboardDefinition(definition, state);
+    state.dashboards[id] = { id, name: definition.name, archived: false, currentRevisionId: null, draft: definition };
+    const revision = publishDashboard(state, id);
+    saveState(state);
+    return sendJson(response, 201, { dashboard: state.dashboards[id], revision });
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/sources/test") {
+    const input = await readBody(request);
+    const manifest = state.connectorManifests[input.connectorId];
+    if (!manifest) throw httpError(400, `Unknown connector ${input.connectorId}`);
+    validateJsonSchema(input.config ?? {}, manifest.configSchema, "Source test configuration");
+    const instance = {
+      id: input.id ?? "source-test",
+      connectorId: input.connectorId,
+      connectorVersion: manifest.version,
+      outputSchemaVersion: manifest.outputSchemaVersion,
+      name: input.name ?? manifest.displayName,
+      config: input.config ?? {},
+      timeoutMs: manifest.timeoutMs,
+      validForSeconds: manifest.defaultCollectionIntervalSeconds * 3
+    };
+    const snapshot = await collectConnector(instance);
+    return sendJson(response, 200, { snapshot, fields: dataFields(snapshot.payload) });
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/sources") {
+    const input = await readBody(request);
+    if (input.connectorId === "webhook.json" && !input.config?.token) {
+      input.config ??= {};
+      input.config.token = createDeviceToken();
+    }
+    const instance = createConnectorInstance(state, input);
+    let snapshot = null;
+    try {
+      snapshot = await collectSource(state, instance.id);
+    } catch {
+      // Source health records the failure. Save the configured source so the user can fix it.
+    }
+    saveState(state);
+    return sendJson(response, 201, {
+      source: { ...instance, config: redact(instance.config) },
+      snapshot,
+      webhookUrl: instance.connectorId === "webhook.json" ? `/api/v1/webhooks/${instance.id}/${instance.config.token}` : null
+    });
+  }
   if (request.method === "POST" && url.pathname.match(/^\/api\/v1\/sources\/[^/]+\/collect$/)) {
     const sourceId = url.pathname.split("/")[4];
     const snapshot = await collectSource(state, sourceId);
@@ -456,6 +711,12 @@ async function route(request, response, state) {
     saveState(state);
     return sendJson(response, 201, enrollment);
   }
+  if (request.method === "POST" && url.pathname === "/api/v1/devices/pairing-codes") {
+    const body = await readBody(request);
+    const pairing = createPairingCode(state, body, request);
+    saveState(state);
+    return sendJson(response, 201, pairing);
+  }
   if (request.method === "POST" && url.pathname.match(/^\/api\/v1\/devices\/[^/]+\/assign$/)) {
     const deviceId = url.pathname.split("/")[4];
     const body = await readBody(request);
@@ -467,6 +728,24 @@ async function route(request, response, state) {
     const display = getDeviceDisplay(state, request);
     saveState(state);
     return send(response, display.status, display.body, display.headers);
+  }
+  if (request.method === "GET" && url.pathname.match(/^\/api\/v1\/pairing\/[^/]+\/kual-bundle\.tgz$/)) {
+    const code = url.pathname.split("/")[4];
+    const bundle = pairingBundle(state, code);
+    return send(response, 200, bundle, {
+      "Content-Type": "application/gzip",
+      "Content-Disposition": `attachment; filename="dashboard-kindle-${code}.tgz"`
+    });
+  }
+  if (request.method === "POST" && url.pathname.match(/^\/api\/v1\/webhooks\/[^/]+\/[^/]+$/)) {
+    const [, , , , sourceId, token] = url.pathname.split("/");
+    const instance = state.connectorInstances[sourceId];
+    if (!instance || instance.connectorId !== "webhook.json" || instance.config.token !== token) throw httpError(404, "Webhook not found");
+    const payload = await readBody(request);
+    instance.config.latestPayload = payload;
+    const snapshot = await collectSource(state, sourceId);
+    saveState(state);
+    return sendJson(response, 202, { snapshotId: snapshot.id, payloadHash: snapshot.payloadHash });
   }
   if (request.method === "GET" && url.pathname === "/api/v1/diagnostics") {
     return sendJson(response, 200, {
@@ -482,6 +761,7 @@ async function route(request, response, state) {
 }
 
 function publicState(state) {
+  cleanupPairingCodes(state);
   return {
     connectorManifests: Object.values(state.connectorManifests),
     connectorInstances: Object.values(state.connectorInstances).map((instance) => ({ ...instance, config: redact(instance.config) })),
@@ -492,8 +772,46 @@ function publicState(state) {
     renderArtifacts: Object.values(state.renderArtifacts).map((artifact) => ({ ...artifact, imagePath: path.relative(repoPath(), artifact.imagePath), svgPath: path.relative(repoPath(), artifact.svgPath), pgmPath: path.relative(repoPath(), artifact.pgmPath) })),
     devices: Object.values(state.devices).map(withoutToken),
     assignments: state.assignments,
-    deviceCheckins: state.deviceCheckins
+    deviceCheckins: state.deviceCheckins,
+    setup: setupStatus(state),
+    pairingCodes: Object.values(state.pairingCodes ?? {}).map(({ token, ...record }) => record)
   };
+}
+
+function dataFields(value, prefix = "$") {
+  if (Array.isArray(value)) {
+    return value.slice(0, 5).flatMap((item, index) => dataFields(item, `${prefix}.${index}`));
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).flatMap(([key, item]) => {
+      const pathName = `${prefix}.${key}`;
+      return [{ path: pathName, type: Array.isArray(item) ? "array" : typeof item, sample: summarizeFieldSample(item) }, ...dataFields(item, pathName)];
+    }).slice(0, 100);
+  }
+  return [];
+}
+
+function summarizeFieldSample(value) {
+  if (Array.isArray(value)) return `${value.length} items`;
+  if (value && typeof value === "object") return `${Object.keys(value).length} fields`;
+  return value;
+}
+
+function setupStatus(state) {
+  const sourceCount = Object.keys(state.connectorInstances ?? {}).length;
+  const deviceCount = Object.keys(state.devices ?? {}).length;
+  const renderedCount = Object.keys(state.renderArtifacts ?? {}).length;
+  const assignedCount = Object.keys(state.assignments ?? {}).length;
+  const steps = [
+    { id: "admin", label: "Create an admin account", done: Boolean(adminToken) },
+    { id: "health", label: "Confirm server and renderer health", done: true },
+    { id: "source", label: "Add the first data source", done: sourceCount > 0 },
+    { id: "template", label: "Choose a dashboard template", done: Object.keys(state.dashboards ?? {}).length > 0 },
+    { id: "device", label: "Pair a device", done: deviceCount > 0 },
+    { id: "screen", label: "Send and verify a test screen", done: renderedCount > 0 && assignedCount > 0 },
+    { id: "refresh", label: "Configure refresh and quiet hours", done: deviceCount > 0 }
+  ];
+  return { completed: Boolean(state.setup?.completed), steps, nextStep: steps.find((step) => !step.done)?.id ?? "complete" };
 }
 
 function serveStatic(response, fileName) {

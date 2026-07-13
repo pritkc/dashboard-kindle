@@ -49,7 +49,7 @@ pnpm docker:up
 
 The development UI starts with fixture-backed CodexBar, ActivityWatch, HTTP JSON, and manual sources. No external credentials are required.
 
-For detailed data setup, device enrollment, simulator usage, and Kindle KUAL configuration, see [docs/setup-data-and-device.md](docs/setup-data-and-device.md).
+For guided setup, data-source configuration, device pairing, simulator usage, and Kindle KUAL installation, see [docs/setup-data-and-device.md](docs/setup-data-and-device.md).
 
 ## Device Flow
 
@@ -57,9 +57,12 @@ Enroll a device:
 
 ```bash
 curl -sS http://127.0.0.1:8787/api/v1/devices/enroll \
+  -H "X-Admin-Token: <admin-token>" \
   -H 'content-type: application/json' \
   -d '{"name":"Kindle","capabilities":{"profileId":"kindle_basic_600x800"}}'
 ```
+
+The browser UI also provides a no-code pairing path: choose a device model, enter the LAN server URL, and download a preconfigured KUAL bundle.
 
 Fetch the assigned image:
 

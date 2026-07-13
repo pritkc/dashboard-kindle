@@ -1,6 +1,6 @@
 # Setup Data and Devices
 
-This guide covers the fixture-backed setup path and the device setup path. It does not require CodexBar, ActivityWatch, or Kindle hardware.
+This guide covers the fixture-backed setup path, no-code source setup, device pairing, simulator testing, and Kindle KUAL installation. It does not require CodexBar, ActivityWatch, or Kindle hardware unless you choose to test on a physical Kindle.
 
 ## 1. Configure Environment
 
@@ -63,11 +63,74 @@ http://127.0.0.1:8787
 
 Unlock the UI with `DASHBOARD_KINDLE_ADMIN_TOKEN`. For loopback-only development without `.env`, this is `dev-admin-token`.
 
-The UI lets you collect sources, edit dashboard JSON, publish a revision, render, enroll a simulator device, and assign dashboards to devices.
+The UI opens with a setup checklist. Work through it in this order:
 
-## 4. Enroll a Device
+1. Unlock with the administrator token.
+2. Confirm the health banner shows the server is reachable.
+3. Create or test a data source in **Add Source**.
+4. Create a dashboard from **Templates** or use the seeded dashboards.
+5. Pair a simulator or physical device.
+6. Click **Render** and verify the processed PNG preview appears.
+7. Assign the dashboard to the device.
+8. Mark setup complete after the preview and device fetch test pass.
 
-Use the API:
+The setup status is resumable because the server derives each step from persisted sources, dashboards, devices, assignments, and render artifacts.
+
+## 4. Add or Test Data Sources
+
+The fixture setup starts with working CodexBar, ActivityWatch, HTTP JSON, and manual sources. To add a new source without editing code:
+
+1. In **Add Source**, pick a connector.
+2. Keep the generated recommended JSON, or edit the fields required by the connector schema.
+3. Click **Test**.
+4. Review the returned field list. Use these paths in dashboard widgets, for example `$.metric` or `$.topApplications`.
+5. Click **Save**.
+
+Recommended first sources:
+
+* **Static manual data**: use `{ "payload": { "metric": 73, "alert": "All systems nominal" } }`.
+* **HTTP JSON**: use `{ "url": "fixture://http" }` for an offline test. For a LAN/private URL, add `"allowPrivateNetwork": true` only when you trust that endpoint.
+* **Webhook JSON**: save the generated source, then post JSON to the displayed webhook URL. The server stores the latest payload and redacts the webhook token from public state.
+* **RSS or Atom**: use a public feed URL. Private network feed URLs are blocked unless explicitly allowed.
+
+## 5. Create a Dashboard
+
+Use **Templates** in the UI for a no-code start. Current templates include blank, clock/status, work/activity, and news/RSS layouts. After creating a dashboard:
+
+1. Select it in the dashboard dropdown.
+2. Click **Render** to generate the processed PNG preview.
+3. Assign it to a device in **Device assignment**.
+
+The raw JSON editor remains available for advanced changes. Publish explicitly after editing JSON.
+
+## 6. Pair a Device
+
+### UI pairing path
+
+Use **Pair Device** in the sidebar:
+
+1. Enter a device name.
+2. Select the closest screen profile.
+3. Set `Server URL` to the LAN address reachable from the device, for example `http://192.168.1.20:8787`.
+4. Click **Create pairing bundle**.
+5. Download the generated `dashboard-kindle-<code>.tgz`.
+
+The bundle contains the KUAL extension plus a prefilled `state/config` file with `SERVER_URL`, `DEVICE_TOKEN`, and `POLL_SECONDS`. The pairing code expires after 15 minutes. The device token is stored hashed on the server and is not exposed through `/api/v1/state`.
+
+### API pairing path
+
+For scripted setup:
+
+```bash
+curl -sS http://127.0.0.1:8787/api/v1/devices/pairing-codes \
+  -H "X-Admin-Token: <admin-token>" \
+  -H 'content-type: application/json' \
+  -d '{"name":"Kindle","serverUrl":"http://<server-lan-ip>:8787","capabilities":{"profileId":"kindle_basic_600x800","width":600,"height":800}}'
+```
+
+Download the returned `bundleUrl` and unpack it onto the device.
+
+Direct enrollment is still available for simulator or advanced testing:
 
 ```bash
 curl -sS http://127.0.0.1:8787/api/v1/devices/enroll \
@@ -76,7 +139,7 @@ curl -sS http://127.0.0.1:8787/api/v1/devices/enroll \
   -d '{"name":"Kindle","capabilities":{"profileId":"kindle_basic_600x800","width":600,"height":800}}'
 ```
 
-The response includes a `token` once. Store it on the device. The server stores only a token hash.
+The direct enrollment response includes a `token` once. Store it on the device. The server stores only a token hash.
 
 Assign a dashboard:
 
@@ -104,7 +167,7 @@ curl -i http://127.0.0.1:8787/api/v1/device/display \
 
 Expected result for an unchanged non-clock dashboard is `304 Not Modified`.
 
-## 5. Use the Simulator
+## 7. Use the Simulator
 
 With the server running:
 
@@ -124,7 +187,25 @@ To reuse an existing token:
 DASHBOARD_KINDLE_DEVICE_TOKEN=<device-token> pnpm simulator
 ```
 
-## 6. Configure Kindle KUAL Client
+## 8. Kindle Compatibility
+
+Dashboard Kindle’s physical client is a KUAL extension. A stock Kindle cannot run it until the device has a jailbreak and KUAL installed.
+
+| Device class | Status | Notes |
+| --- | --- | --- |
+| Kindle Basic 600x800 | Supported profile, hardware validation still required | Use `kindle_basic_600x800`. |
+| Kindle Paperwhite 758x1024 | Supported profile, hardware validation still required | Use `kindle_pw_758x1024`. |
+| TRMNL/BYOD 800x480 | Supported generic profile for simulator/BYOD clients | Use `trmnl_800x480`. |
+| Other e-ink screens | Custom profile required | Set width, height, palette, dithering, and refresh policy manually in advanced state for now. |
+| Unsupported stock Kindle firmware | Not no-code | Jailbreak/KUAL availability depends on model and firmware. Verify this before buying hardware. |
+
+Known current limitations:
+
+* Sleep/wake behavior depends on the Kindle model, firmware, and available display tools.
+* The server/device protocol is tested in simulator and with generated KUAL packages; physical framebuffer behavior still needs hardware validation.
+* Keep the server on a trusted LAN or behind HTTPS. Do not expose port `8787` directly to the public internet.
+
+## 9. Configure Kindle KUAL Client
 
 Build the package:
 
@@ -154,7 +235,9 @@ POLL_SECONDS=300
 
 Then run `Refresh once` to test a single download, followed by `Start dashboard` for polling mode.
 
-## 7. Reset Local Runtime Data
+If you used the UI pairing bundle, unpack the downloaded archive and copy its `dashboard-kindle` directory to `/mnt/us/extensions/dashboard-kindle`; the config file is already filled in.
+
+## 10. Reset Local Runtime Data
 
 Stop the server, then remove runtime files:
 

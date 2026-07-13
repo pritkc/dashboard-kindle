@@ -95,7 +95,8 @@ h2 {
 
 .actions,
 .toolbar,
-.assignRow {
+.assignRow,
+.buttonRow {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -176,8 +177,71 @@ label {
   font-size: 13px;
 }
 
+.item.done {
+  border-color: #9eb8ad;
+  background: #f2f7f4;
+}
+
+.item.current {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 .compact .item {
   padding: 8px;
+}
+
+.panel label {
+  margin-bottom: 10px;
+}
+
+.panel input,
+.panel select,
+.panel textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.smallTextarea {
+  min-height: 140px;
+  font-size: 12px;
+}
+
+.fieldList {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.fieldItem {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfbf9;
+  font-size: 12px;
+}
+
+.fieldItem code {
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.fieldItem span {
+  color: var(--muted);
+}
+
+.pairingResult {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.pairingResult a {
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .previewRow {

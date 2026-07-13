@@ -28,17 +28,79 @@
     <main class="shell">
       <aside class="panel">
         <section>
+          <h2>Setup</h2>
+          <div id="setupChecklist" class="list compact"></div>
+          <button id="completeSetup" class="secondary">Mark setup complete</button>
+        </section>
+        <section>
           <h2>Dashboards</h2>
           <div id="dashboards" class="list"></div>
+        </section>
+        <section>
+          <h2>Templates</h2>
+          <label>
+            Template
+            <select id="templateSelect"></select>
+          </label>
+          <label>
+            New dashboard name
+            <input id="templateName" type="text" placeholder="Kitchen display">
+          </label>
+          <button id="cloneTemplate">Create dashboard</button>
         </section>
         <section>
           <h2>Sources</h2>
           <div id="sources" class="list compact"></div>
         </section>
         <section>
+          <h2>Add Source</h2>
+          <label>
+            Connector
+            <select id="sourceConnector"></select>
+          </label>
+          <label>
+            Source name
+            <input id="sourceName" type="text" placeholder="Manual status">
+          </label>
+          <label>
+            Source id
+            <input id="sourceId" type="text" placeholder="manual-status">
+          </label>
+          <label>
+            Configuration JSON
+            <textarea id="sourceConfig" class="smallTextarea"></textarea>
+          </label>
+          <div class="buttonRow">
+            <button id="testSource" class="secondary">Test</button>
+            <button id="saveSource">Save</button>
+          </div>
+          <div id="sourceFields" class="fieldList"></div>
+        </section>
+        <section>
           <h2>Devices</h2>
           <div id="devices" class="list compact"></div>
           <button id="enroll">Enroll simulator</button>
+        </section>
+        <section>
+          <h2>Pair Device</h2>
+          <label>
+            Device name
+            <input id="pairDeviceName" type="text" value="Kindle">
+          </label>
+          <label>
+            Model
+            <select id="pairDeviceProfile">
+              <option value="kindle_basic_600x800">Kindle basic 600x800</option>
+              <option value="kindle_pw_758x1024">Kindle Paperwhite 758x1024</option>
+              <option value="trmnl_800x480">TRMNL 800x480</option>
+            </select>
+          </label>
+          <label>
+            Server URL
+            <input id="pairServerUrl" type="url" placeholder="http://192.168.1.20:8787">
+          </label>
+          <button id="createPairing">Create pairing bundle</button>
+          <div id="pairingResult" class="pairingResult"></div>
         </section>
       </aside>
 
