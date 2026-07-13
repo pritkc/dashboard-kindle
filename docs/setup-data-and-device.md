@@ -97,10 +97,11 @@ Recommended first sources:
 * **RSS or Atom**: use a public feed URL. Private network feed URLs are blocked unless explicitly allowed.
 * **Weather**: use `{ "mode": "fixture", "locationName": "San Francisco", "units": "imperial" }` for an offline test, or switch to `"mode": "open-meteo"` and provide `latitude`, `longitude`, and `timezone`.
 * **iCalendar URL**: use `{ "url": "fixture://calendar", "maxEvents": 8 }` for an offline test, or provide a public `.ics` URL. Private network calendar URLs are blocked unless explicitly allowed.
+* **GitHub repository**: use `{ "mode": "fixture", "includeIssues": true, "includePullRequests": true }` for an offline test. For a real repository, use `{ "mode": "api", "owner": "OWNER", "repo": "REPO", "includeIssues": true, "includePullRequests": true }`. Add `token` only for private repositories or higher rate limits; it is redacted from public state.
 
 ## 5. Create a Dashboard
 
-Use **Templates** in the UI for a no-code start. Current templates include blank, clock/status, work/activity, news/RSS, clock/weather, and calendar-day layouts. After creating a dashboard:
+Use **Templates** in the UI for a no-code start. Current templates include blank, clock/status, work/activity, news/RSS, clock/weather, calendar-day, and GitHub status layouts. After creating a dashboard:
 
 1. Select it in the dashboard dropdown.
 2. Click **Render** to generate the processed PNG preview.

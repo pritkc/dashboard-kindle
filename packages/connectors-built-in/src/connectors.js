@@ -35,6 +35,8 @@ async function collectPayload(instance, options) {
       return collectWeather(instance);
     case "calendar.ics":
       return collectCalendar(instance);
+    case "github.repo":
+      return collectGitHubRepo(instance);
     case "local.command.json":
       return {
         status: "blocked",
@@ -123,6 +125,22 @@ async function collectCalendar(instance) {
   return parseICalendar(text, maxEvents);
 }
 
+async function collectGitHubRepo(instance) {
+  const { mode = "api", owner, repo, token, includeIssues = true, includePullRequests = true } = instance.config;
+  if (mode === "fixture") return readJson(repoPath("data/fixtures/github.json"), {});
+  if (!owner || !repo) throw new Error("GitHub connector requires owner and repo in api mode.");
+  const baseUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const headers = githubHeaders(token);
+  const repository = JSON.parse(await fetchLimited(baseUrl, headers, instance.timeoutMs));
+  const issues = includeIssues
+    ? JSON.parse(await fetchLimited(`${baseUrl}/issues?state=open&per_page=5`, headers, instance.timeoutMs)).filter((item) => !item.pull_request)
+    : [];
+  const pullRequests = includePullRequests
+    ? JSON.parse(await fetchLimited(`${baseUrl}/pulls?state=open&per_page=5`, headers, instance.timeoutMs))
+    : [];
+  return normalizeGitHubPayload(repository, issues, pullRequests);
+}
+
 async function fetchCalendarText(url, allowPrivateNetwork, timeoutMs) {
   if (!allowPrivateNetwork && isPrivateNetworkUrl(url)) {
     throw new Error("Blocked private-network calendar target.");
@@ -147,6 +165,44 @@ async function fetchLimited(url, headers, timeoutMs = 5000) {
 function normalizedHeaders(headers) {
   if (!headers || typeof headers !== "object" || Array.isArray(headers)) return {};
   return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, String(value)]));
+}
+
+function githubHeaders(token) {
+  return {
+    accept: "application/vnd.github+json",
+    "user-agent": "dashboard-kindle",
+    ...(token ? { authorization: `Bearer ${token}` } : {})
+  };
+}
+
+function normalizeGitHubPayload(repository, issues, pullRequests) {
+  return {
+    repository: {
+      fullName: repository.full_name,
+      description: repository.description,
+      stars: Number(repository.stargazers_count ?? 0),
+      forks: Number(repository.forks_count ?? 0),
+      openIssues: Number(repository.open_issues_count ?? 0),
+      defaultBranch: repository.default_branch,
+      updatedAt: repository.updated_at,
+      url: repository.html_url
+    },
+    issues: issues.map((issue) => ({
+      number: issue.number,
+      title: issue.title,
+      author: issue.user?.login,
+      updatedAt: issue.updated_at,
+      url: issue.html_url
+    })),
+    pullRequests: pullRequests.map((pullRequest) => ({
+      number: pullRequest.number,
+      title: pullRequest.title,
+      author: pullRequest.user?.login,
+      updatedAt: pullRequest.updated_at,
+      url: pullRequest.html_url
+    })),
+    fetchedAt: new Date().toISOString()
+  };
 }
 
 function normalizeWeatherPayload(payload, { locationName, units }) {

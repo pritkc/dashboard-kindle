@@ -115,7 +115,7 @@ function renderList(data, { x, y, w }) {
   if (rows.length === 0) return renderText("No rows", { x, y, w, h: 80 });
   return rows.map((row, index) => {
     const label = row.name ?? row.title ?? row.summary ?? row.date ?? row.startsAt ?? String(row);
-    const value = row.minutes !== undefined ? `${row.minutes} min` : row.highF !== undefined && row.lowF !== undefined ? `${row.lowF}-${row.highF}F` : row.value ?? row.location ?? "";
+    const value = row.minutes !== undefined ? `${row.minutes} min` : row.highF !== undefined && row.lowF !== undefined ? `${row.lowF}-${row.highF}F` : row.number !== undefined ? `#${row.number}` : row.value ?? row.location ?? row.author ?? "";
     return `<text x="${x + 16}" y="${y + 62 + index * 28}" class="text">${escapeXml(label)}</text>
     <text x="${x + w - 18}" y="${y + 62 + index * 28}" text-anchor="end" class="small">${escapeXml(value)}</text>`;
   }).join("\n");

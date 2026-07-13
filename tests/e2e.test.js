@@ -293,7 +293,7 @@ test("dashboard management supports duplicate, archive, export, import, and safe
   assert.equal(dashboards.some((dashboard) => dashboard.id === imported.dashboard.id), true);
 });
 
-test("weather, calendar, and authenticated HTTP source setup works without exposing headers", async (t) => {
+test("weather, calendar, GitHub, and authenticated HTTP source setup works without exposing secrets", async (t) => {
   const state = loadState();
   const server = createAppServer(state);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -315,6 +315,27 @@ test("weather, calendar, and authenticated HTTP source setup works without expos
   assert.ok(calendar.fields.some((field) => field.path === "$.events"));
   assert.equal(calendar.snapshot.payload.events[0].title, "Team standup");
 
+  const githubTest = await postJson(`${base}/api/v1/sources/test`, {
+    connectorId: "github.repo",
+    config: { mode: "fixture", includeIssues: true, includePullRequests: true }
+  });
+  assert.ok(githubTest.fields.some((field) => field.path === "$.repository.stars"));
+  assert.ok(githubTest.fields.some((field) => field.path === "$.issues"));
+  assert.equal(githubTest.snapshot.payload.repository.fullName, "openai/dashboard-kindle-example");
+
+  const github = await postJson(`${base}/api/v1/sources`, {
+    id: `github-${suffix}`,
+    connectorId: "github.repo",
+    name: "GitHub fixture with token",
+    config: {
+      mode: "fixture",
+      token: "fake-token-for-redaction",
+      includeIssues: true,
+      includePullRequests: true
+    }
+  });
+  assert.equal(github.source.config.token, "[REDACTED]");
+
   const http = await postJson(`${base}/api/v1/sources`, {
     id: `auth-http-${suffix}`,
     connectorId: "http.json",
@@ -330,11 +351,17 @@ test("weather, calendar, and authenticated HTTP source setup works without expos
   const templates = await getJson(`${base}/api/v1/dashboard-templates`);
   assert.ok(templates.some((template) => template.id === "weather-clock"));
   assert.ok(templates.some((template) => template.id === "calendar-day"));
+  assert.ok(templates.some((template) => template.id === "github-status"));
   const weatherDashboard = await postJson(`${base}/api/v1/dashboard-templates/weather-clock/clone`, {
     id: `weather-${suffix}`,
     name: "Weather test"
   });
   assert.equal(weatherDashboard.dashboard.name, "Weather test");
+  const githubDashboard = await postJson(`${base}/api/v1/dashboard-templates/github-status/clone`, {
+    id: `github-board-${suffix}`,
+    name: "GitHub test"
+  });
+  assert.equal(githubDashboard.dashboard.name, "GitHub test");
 });
 
 test("backup and restore scripts operate on state", async () => {

@@ -1,0 +1,38 @@
+{
+  "repository": {
+    "fullName": "openai/dashboard-kindle-example",
+    "description": "Fixture repository used to test an e-ink dashboard integration.",
+    "stars": 128,
+    "forks": 14,
+    "openIssues": 3,
+    "defaultBranch": "main",
+    "updatedAt": "2026-07-13T12:00:00.000Z",
+    "url": "https://github.com/openai/dashboard-kindle-example"
+  },
+  "issues": [
+    {
+      "number": 42,
+      "title": "Document Kindle setup checklist",
+      "author": "maintainer",
+      "updatedAt": "2026-07-13T10:30:00.000Z",
+      "url": "https://github.com/openai/dashboard-kindle-example/issues/42"
+    },
+    {
+      "number": 41,
+      "title": "Add low-battery warning widget",
+      "author": "contributor",
+      "updatedAt": "2026-07-12T18:20:00.000Z",
+      "url": "https://github.com/openai/dashboard-kindle-example/issues/41"
+    }
+  ],
+  "pullRequests": [
+    {
+      "number": 43,
+      "title": "Improve source wizard field preview",
+      "author": "maintainer",
+      "updatedAt": "2026-07-13T11:15:00.000Z",
+      "url": "https://github.com/openai/dashboard-kindle-example/pull/43"
+    }
+  ],
+  "fetchedAt": "2026-07-13T12:05:00.000Z"
+}

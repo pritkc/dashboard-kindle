@@ -285,6 +285,28 @@ function connectorManifests() {
       configSchema: { type: "object", properties: { url: { type: "string" }, allowPrivateNetwork: { type: "boolean" }, maxEvents: { type: "number" } }, required: ["url"] },
       secretFields: ["url"]
     },
+    "github.repo": {
+      ...base,
+      id: "github.repo",
+      version: "1.0.0",
+      displayName: "GitHub repository",
+      description: "Fetches public or token-authenticated GitHub repository metadata, issues, and pull requests.",
+      executionLocation: "server",
+      outputSchemaVersion: "1.0.0",
+      configSchema: {
+        type: "object",
+        properties: {
+          mode: { enum: ["fixture", "api"] },
+          owner: { type: "string" },
+          repo: { type: "string" },
+          token: { type: "string" },
+          includeIssues: { type: "boolean" },
+          includePullRequests: { type: "boolean" }
+        },
+        required: ["mode"]
+      },
+      secretFields: ["token"]
+    },
     "codexbar.usage": {
       ...base,
       id: "codexbar.usage",
@@ -317,6 +339,7 @@ function seedConnectorInstances() {
     httpfixture: { id: "httpfixture", connectorId: "http.json", name: "HTTP JSON fixture", config: { url: "fixture://http" }, validForSeconds: 900 },
     weather: { id: "weather", connectorId: "weather.open-meteo", name: "Weather fixture", config: { mode: "fixture", locationName: "San Francisco", units: "imperial" }, validForSeconds: 900 },
     calendar: { id: "calendar", connectorId: "calendar.ics", name: "Calendar fixture", config: { url: "fixture://calendar", maxEvents: 8 }, validForSeconds: 900 },
+    github: { id: "github", connectorId: "github.repo", name: "GitHub fixture", config: { mode: "fixture", includeIssues: true, includePullRequests: true }, validForSeconds: 900 },
     manual: { id: "manual", connectorId: "static.manual", name: "Manual status", config: { payload: { metric: 73, alert: "All sample sources are healthy" } }, validForSeconds: 1800 }
   };
 }

@@ -14,5 +14,8 @@ Built-in server connectors currently include:
 * RSS/Atom
 * Weather through Open-Meteo
 * iCalendar URL
+* GitHub repository metadata, issues, and pull requests
 
 Authenticated HTTP APIs should put credentials in `config.headers` rather than embedding secrets in URLs. Secret-like header names, including `authorization`, are redacted before connector configuration is returned through public state.
+
+The GitHub connector accepts an optional `token` for private repositories or higher rate limits. The token is stored in source configuration but redacted from `/api/v1/state`; avoid putting tokens into dashboard definitions, fixtures, or documentation examples.

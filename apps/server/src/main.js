@@ -641,6 +641,22 @@ function dashboardTemplates() {
           { id: "status", type: "status", title: "Calendar", x: 24, y: 408, w: 752, h: 148, sourceId: "calendar", expression: "$" }
         ]
       }
+    },
+    {
+      id: "github-status",
+      name: "GitHub status",
+      description: "Repository summary, open issues, and pull requests from a GitHub source.",
+      definition: {
+        name: "GitHub status",
+        profile,
+        widgets: [
+          { id: "repo", type: "status", title: "Repository", x: 24, y: 24, w: 488, h: 150, sourceId: "github", expression: "$.repository" },
+          { id: "stars", type: "metric", title: "Stars", x: 536, y: 24, w: 240, h: 150, sourceId: "github", expression: "$.repository.stars", suffix: "" },
+          { id: "issues", type: "list", title: "Open issues", x: 24, y: 198, w: 366, h: 220, sourceId: "github", expression: "$.issues" },
+          { id: "pulls", type: "list", title: "Pull requests", x: 410, y: 198, w: 366, h: 220, sourceId: "github", expression: "$.pullRequests" },
+          { id: "updated", type: "status", title: "Last updated", x: 24, y: 442, w: 752, h: 114, sourceId: "github", expression: "$.repository.updatedAt" }
+        ]
+      }
     }
   ];
 }
