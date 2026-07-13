@@ -202,10 +202,10 @@ function connectorManifests() {
       id: "http.json",
       version: "1.0.0",
       displayName: "HTTP JSON",
-      description: "Fetches a JSON document with SSRF protection and size limits.",
+      description: "Fetches a JSON document with SSRF protection, optional headers, and size limits.",
       executionLocation: "server",
       outputSchemaVersion: "1.0.0",
-      configSchema: { type: "object", properties: { url: { type: "string" }, allowPrivateNetwork: { type: "boolean" } }, required: ["url"] },
+      configSchema: { type: "object", properties: { url: { type: "string" }, method: { enum: ["GET", "POST"] }, headers: { type: "object" }, body: { type: "object" }, allowPrivateNetwork: { type: "boolean" } }, required: ["url"] },
       secretFields: ["headers.authorization"]
     },
     "webhook.json": {
@@ -263,6 +263,28 @@ function connectorManifests() {
       configSchema: { type: "object", properties: { url: { type: "string" }, allowPrivateNetwork: { type: "boolean" } }, required: ["url"] },
       secretFields: []
     },
+    "weather.open-meteo": {
+      ...base,
+      id: "weather.open-meteo",
+      version: "1.0.0",
+      displayName: "Weather",
+      description: "Fetches current conditions and a short forecast from Open-Meteo, or fixture weather data offline.",
+      executionLocation: "server",
+      outputSchemaVersion: "1.0.0",
+      configSchema: { type: "object", properties: { mode: { enum: ["fixture", "open-meteo"] }, locationName: { type: "string" }, latitude: { type: "number" }, longitude: { type: "number" }, timezone: { type: "string" }, units: { enum: ["metric", "imperial"] } }, required: ["mode"] },
+      secretFields: []
+    },
+    "calendar.ics": {
+      ...base,
+      id: "calendar.ics",
+      version: "1.0.0",
+      displayName: "iCalendar URL",
+      description: "Fetches upcoming events from an iCalendar feed or fixture calendar.",
+      executionLocation: "server",
+      outputSchemaVersion: "1.0.0",
+      configSchema: { type: "object", properties: { url: { type: "string" }, allowPrivateNetwork: { type: "boolean" }, maxEvents: { type: "number" } }, required: ["url"] },
+      secretFields: ["url"]
+    },
     "codexbar.usage": {
       ...base,
       id: "codexbar.usage",
@@ -293,6 +315,8 @@ function seedConnectorInstances() {
     codexbar: { id: "codexbar", connectorId: "codexbar.usage", name: "CodexBar fixture", config: { mode: "fixture" }, validForSeconds: 900 },
     activitywatch: { id: "activitywatch", connectorId: "activitywatch.summary", name: "ActivityWatch fixture", config: { mode: "fixture", includeSensitiveTitles: false }, validForSeconds: 900 },
     httpfixture: { id: "httpfixture", connectorId: "http.json", name: "HTTP JSON fixture", config: { url: "fixture://http" }, validForSeconds: 900 },
+    weather: { id: "weather", connectorId: "weather.open-meteo", name: "Weather fixture", config: { mode: "fixture", locationName: "San Francisco", units: "imperial" }, validForSeconds: 900 },
+    calendar: { id: "calendar", connectorId: "calendar.ics", name: "Calendar fixture", config: { url: "fixture://calendar", maxEvents: 8 }, validForSeconds: 900 },
     manual: { id: "manual", connectorId: "static.manual", name: "Manual status", config: { payload: { metric: 73, alert: "All sample sources are healthy" } }, validForSeconds: 1800 }
   };
 }

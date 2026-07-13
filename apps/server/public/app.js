@@ -506,9 +506,11 @@ function fillSourceDefaults() {
 
 function defaultConnectorConfig(manifest) {
   if (manifest.id === "static.manual") return { payload: { metric: 73, alert: "All systems nominal" } };
-  if (manifest.id === "http.json") return { url: "fixture://http" };
+  if (manifest.id === "http.json") return { url: "fixture://http", method: "GET", headers: {} };
   if (manifest.id === "webhook.json") return { initialPayload: { message: "Waiting for first webhook payload" } };
   if (manifest.id === "rss.atom") return { url: "https://hnrss.org/frontpage" };
+  if (manifest.id === "weather.open-meteo") return { mode: "fixture", locationName: "San Francisco", units: "imperial" };
+  if (manifest.id === "calendar.ics") return { url: "fixture://calendar", maxEvents: 8 };
   const config = {};
   for (const [key, definition] of Object.entries(manifest.configSchema?.properties ?? {})) {
     if (!(manifest.configSchema?.required ?? []).includes(key)) continue;

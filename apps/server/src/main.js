@@ -611,6 +611,36 @@ function dashboardTemplates() {
           { id: "items", type: "list", title: "Latest entries", x: 24, y: 158, w: 752, h: 398, sourceId: "activitywatch", expression: "$.topApplications" }
         ]
       }
+    },
+    {
+      id: "weather-clock",
+      name: "Clock and weather",
+      description: "A clock, current conditions, forecast, and status message.",
+      definition: {
+        name: "Clock and weather",
+        profile,
+        widgets: [
+          { id: "clock", type: "clock", title: "Now", x: 24, y: 24, w: 240, h: 150, sourceId: "manual", expression: "$" },
+          { id: "temp", type: "metric", title: "Temperature", x: 288, y: 24, w: 220, h: 150, sourceId: "weather", expression: "$.current.temperatureF", suffix: "F" },
+          { id: "conditions", type: "status", title: "Conditions", x: 532, y: 24, w: 244, h: 150, sourceId: "weather", expression: "$.current" },
+          { id: "forecast", type: "list", title: "Forecast", x: 24, y: 198, w: 752, h: 220, sourceId: "weather", expression: "$.daily" },
+          { id: "note", type: "alert", title: "Status", x: 24, y: 442, w: 752, h: 114, sourceId: "manual", expression: "$.alert" }
+        ]
+      }
+    },
+    {
+      id: "calendar-day",
+      name: "Calendar day",
+      description: "Upcoming calendar events with a compact status area.",
+      definition: {
+        name: "Calendar day",
+        profile,
+        widgets: [
+          { id: "clock", type: "clock", title: "Now", x: 24, y: 24, w: 240, h: 150, sourceId: "manual", expression: "$" },
+          { id: "events", type: "list", title: "Upcoming", x: 288, y: 24, w: 488, h: 360, sourceId: "calendar", expression: "$.events" },
+          { id: "status", type: "status", title: "Calendar", x: 24, y: 408, w: 752, h: 148, sourceId: "calendar", expression: "$" }
+        ]
+      }
     }
   ];
 }

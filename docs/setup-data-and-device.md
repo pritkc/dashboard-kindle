@@ -92,13 +92,15 @@ Saved sources are collected by a durable scheduler. The source list shows the ne
 Recommended first sources:
 
 * **Static manual data**: use `{ "payload": { "metric": 73, "alert": "All systems nominal" } }`.
-* **HTTP JSON**: use `{ "url": "fixture://http" }` for an offline test. For a LAN/private URL, add `"allowPrivateNetwork": true` only when you trust that endpoint.
+* **HTTP JSON**: use `{ "url": "fixture://http" }` for an offline test. For authenticated APIs, add a `headers` object such as `{ "authorization": "Bearer ..." }`; secret-like header values are redacted in public state. For a LAN/private URL, add `"allowPrivateNetwork": true` only when you trust that endpoint.
 * **Webhook JSON**: save the generated source, then post JSON to the displayed webhook URL. The server stores the latest payload and redacts the webhook token from public state.
 * **RSS or Atom**: use a public feed URL. Private network feed URLs are blocked unless explicitly allowed.
+* **Weather**: use `{ "mode": "fixture", "locationName": "San Francisco", "units": "imperial" }` for an offline test, or switch to `"mode": "open-meteo"` and provide `latitude`, `longitude`, and `timezone`.
+* **iCalendar URL**: use `{ "url": "fixture://calendar", "maxEvents": 8 }` for an offline test, or provide a public `.ics` URL. Private network calendar URLs are blocked unless explicitly allowed.
 
 ## 5. Create a Dashboard
 
-Use **Templates** in the UI for a no-code start. Current templates include blank, clock/status, work/activity, and news/RSS layouts. After creating a dashboard:
+Use **Templates** in the UI for a no-code start. Current templates include blank, clock/status, work/activity, news/RSS, clock/weather, and calendar-day layouts. After creating a dashboard:
 
 1. Select it in the dashboard dropdown.
 2. Click **Render** to generate the processed PNG preview.

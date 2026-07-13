@@ -1,0 +1,20 @@
+{
+  "location": "San Francisco",
+  "timezone": "America/Los_Angeles",
+  "current": {
+    "temperatureC": 18.4,
+    "temperatureF": 65.1,
+    "apparentTemperatureC": 17.8,
+    "apparentTemperatureF": 64,
+    "humidity": 68,
+    "precipitationMm": 0,
+    "windKph": 14.2,
+    "condition": "partly cloudy",
+    "observedAt": "2026-07-13T16:00:00-07:00"
+  },
+  "daily": [
+    { "date": "2026-07-13", "highC": 21, "lowC": 14, "highF": 70, "lowF": 57, "precipitationMm": 0.1 },
+    { "date": "2026-07-14", "highC": 22, "lowC": 15, "highF": 72, "lowF": 59, "precipitationMm": 0 },
+    { "date": "2026-07-15", "highC": 20, "lowC": 14, "highF": 68, "lowF": 57, "precipitationMm": 0.4 }
+  ]
+}

@@ -293,6 +293,50 @@ test("dashboard management supports duplicate, archive, export, import, and safe
   assert.equal(dashboards.some((dashboard) => dashboard.id === imported.dashboard.id), true);
 });
 
+test("weather, calendar, and authenticated HTTP source setup works without exposing headers", async (t) => {
+  const state = loadState();
+  const server = createAppServer(state);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const suffix = Date.now().toString(36);
+
+  const weather = await postJson(`${base}/api/v1/sources/test`, {
+    connectorId: "weather.open-meteo",
+    config: { mode: "fixture", locationName: "San Francisco", units: "imperial" }
+  });
+  assert.ok(weather.fields.some((field) => field.path === "$.current.temperatureF"));
+  assert.ok(weather.fields.some((field) => field.path === "$.daily"));
+
+  const calendar = await postJson(`${base}/api/v1/sources/test`, {
+    connectorId: "calendar.ics",
+    config: { url: "fixture://calendar", maxEvents: 4 }
+  });
+  assert.ok(calendar.fields.some((field) => field.path === "$.events"));
+  assert.equal(calendar.snapshot.payload.events[0].title, "Team standup");
+
+  const http = await postJson(`${base}/api/v1/sources`, {
+    id: `auth-http-${suffix}`,
+    connectorId: "http.json",
+    name: "Authenticated HTTP fixture",
+    config: {
+      url: "fixture://http",
+      method: "GET",
+      headers: { authorization: "Bearer test-secret" }
+    }
+  });
+  assert.equal(http.source.config.headers.authorization, "[REDACTED]");
+
+  const templates = await getJson(`${base}/api/v1/dashboard-templates`);
+  assert.ok(templates.some((template) => template.id === "weather-clock"));
+  assert.ok(templates.some((template) => template.id === "calendar-day"));
+  const weatherDashboard = await postJson(`${base}/api/v1/dashboard-templates/weather-clock/clone`, {
+    id: `weather-${suffix}`,
+    name: "Weather test"
+  });
+  assert.equal(weatherDashboard.dashboard.name, "Weather test");
+});
+
 test("backup and restore scripts operate on state", async () => {
   const state = await bootstrapState(loadState());
   assert.ok(Object.keys(state.renderArtifacts).length >= 3);

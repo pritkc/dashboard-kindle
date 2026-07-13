@@ -114,8 +114,8 @@ function renderList(data, { x, y, w }) {
   const rows = Array.isArray(data) ? data.slice(0, 7) : [];
   if (rows.length === 0) return renderText("No rows", { x, y, w, h: 80 });
   return rows.map((row, index) => {
-    const label = row.name ?? row.title ?? String(row);
-    const value = row.minutes !== undefined ? `${row.minutes} min` : row.value ?? "";
+    const label = row.name ?? row.title ?? row.summary ?? row.date ?? row.startsAt ?? String(row);
+    const value = row.minutes !== undefined ? `${row.minutes} min` : row.highF !== undefined && row.lowF !== undefined ? `${row.lowF}-${row.highF}F` : row.value ?? row.location ?? "";
     return `<text x="${x + 16}" y="${y + 62 + index * 28}" class="text">${escapeXml(label)}</text>
     <text x="${x + w - 18}" y="${y + 62 + index * 28}" text-anchor="end" class="small">${escapeXml(value)}</text>`;
   }).join("\n");

@@ -5,3 +5,14 @@ A connector manifest defines stable ID, version, display name, execution locatio
 Connectors must return immutable snapshots with deterministic payload hashes. They must redact secrets, enforce timeouts and output limits, and map failures without deleting the previous successful snapshot.
 
 Server HTTP connectors deny loopback, link-local, metadata-service, and private-network targets by default. Private-network access must be explicitly enabled for trusted local deployments.
+
+Built-in server connectors currently include:
+
+* Static manual JSON
+* HTTP JSON with optional structured headers/body
+* Generic webhook JSON
+* RSS/Atom
+* Weather through Open-Meteo
+* iCalendar URL
+
+Authenticated HTTP APIs should put credentials in `config.headers` rather than embedding secrets in URLs. Secret-like header names, including `authorization`, are redacted before connector configuration is returned through public state.
