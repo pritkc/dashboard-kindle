@@ -4,6 +4,9 @@ const state = {
   refreshPresets: [],
   dashboardId: "work",
   managedDeviceId: null,
+  sourceFields: [],
+  sourceSamplePayload: null,
+  selectedSourceField: null,
   authenticated: false,
   busy: false
 };
@@ -467,7 +470,7 @@ async function testSource() {
       method: "POST",
       body: JSON.stringify(sourceInput())
     });
-    renderSourceFields(result.fields);
+    renderSourceFields(result.fields, result.snapshot.payload);
     setStatus(`Source test succeeded. Snapshot ${result.snapshot.id}.`);
   });
 }
@@ -478,7 +481,7 @@ async function saveSource() {
       method: "POST",
       body: JSON.stringify(sourceInput())
     });
-    renderSourceFields(result.snapshot ? dataFieldsFromSnapshot(result.snapshot) : []);
+    renderSourceFields(result.snapshot ? dataFieldsFromSnapshot(result.snapshot) : [], result.snapshot?.payload ?? null);
     await reloadState();
     const webhookText = result.webhookUrl ? ` Webhook URL: ${result.webhookUrl}` : "";
     setStatus(`Source saved.${webhookText}`);
@@ -502,6 +505,10 @@ function fillSourceDefaults() {
   if (!manifest) return;
   $("sourceConfig").value = JSON.stringify(defaultConnectorConfig(manifest), null, 2);
   $("sourceInterval").value = String(selectIntervalOption(manifest.defaultCollectionIntervalSeconds ?? 300));
+  state.sourceFields = [];
+  state.sourceSamplePayload = null;
+  state.selectedSourceField = null;
+  renderSourceFields([], null);
 }
 
 function defaultConnectorConfig(manifest) {
@@ -534,13 +541,81 @@ function selectIntervalOption(seconds) {
   return options.find((value) => value >= seconds) ?? options[0];
 }
 
-function renderSourceFields(fields) {
-  $("sourceFields").innerHTML = fields.length ? fields.map((field) => `
-    <div class="fieldItem">
+function renderSourceFields(fields, payload = state.sourceSamplePayload) {
+  state.sourceFields = fields;
+  state.sourceSamplePayload = payload;
+  if (state.selectedSourceField && !fields.some((field) => field.path === state.selectedSourceField)) {
+    state.selectedSourceField = null;
+  }
+  const selected = state.selectedSourceField
+    ? `<div class="fieldSelected"><span>Selected field</span><code>${escapeHtml(state.selectedSourceField)}</code></div>`
+    : `<div class="fieldSelected muted">Select a field from the sample payload.</div>`;
+  const tree = payload && typeof payload === "object"
+    ? renderFieldTree(payload, "$", 0)
+    : `<div class="fieldItem"><span>No sample payload available. Test the source first.</span></div>`;
+  const flatFallback = fields.length ? fields.slice(0, 12).map((field) => `
+    <div class="fieldItem compactField">
       <code>${escapeHtml(field.path)}</code>
       <span>${escapeHtml(field.type)} · ${escapeHtml(field.sample)}</span>
     </div>
   `).join("") : `<div class="fieldItem"><span>No fields found in the sample payload.</span></div>`;
+  $("sourceFields").innerHTML = `
+    ${selected}
+    <div class="fieldTree">${tree}</div>
+    <details class="fieldFlat">
+      <summary>Path list</summary>
+      ${flatFallback}
+    </details>
+  `;
+}
+
+function renderFieldTree(value, path, depth) {
+  const type = Array.isArray(value) ? "array" : value === null ? "null" : typeof value;
+  const summary = `${type} · ${sampleForValue(value)}`;
+  const row = `
+    <span class="fieldPath"><code>${escapeHtml(path)}</code></span>
+    <button type="button" class="tinyButton" data-field-action="select" data-field-path="${escapeHtml(path)}">Use</button>
+    <button type="button" class="tinyButton secondary" data-field-action="copy" data-field-path="${escapeHtml(path)}">Copy</button>
+    <span class="fieldSample">${escapeHtml(summary)}</span>
+  `;
+  if (!value || typeof value !== "object" || depth >= 5) {
+    return `<div class="fieldLeaf">${row}</div>`;
+  }
+  const entries = Array.isArray(value)
+    ? value.slice(0, 20).map((item, index) => [String(index), item])
+    : Object.entries(value).slice(0, 40);
+  const children = entries.map(([key, item]) => renderFieldTree(item, `${path}.${key}`, depth + 1)).join("");
+  return `
+    <details class="fieldNode" ${depth < 2 ? "open" : ""}>
+      <summary>${row}</summary>
+      <div class="fieldChildren">${children}</div>
+    </details>
+  `;
+}
+
+function sampleForValue(value) {
+  if (Array.isArray(value)) return `${value.length} items`;
+  if (value && typeof value === "object") return `${Object.keys(value).length} fields`;
+  if (value === null) return "null";
+  const text = String(value);
+  return text.length > 48 ? `${text.slice(0, 45)}...` : text;
+}
+
+async function handleSourceFieldAction(event) {
+  const button = event.target.closest("[data-field-action]");
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const path = button.dataset.fieldPath;
+  if (!path) return;
+  state.selectedSourceField = path;
+  renderSourceFields(state.sourceFields, state.sourceSamplePayload);
+  if (button.dataset.fieldAction === "copy") {
+    await navigator.clipboard?.writeText(path).catch(() => {});
+    setStatus(`Copied ${path}.`);
+  } else {
+    setStatus(`Selected ${path}.`);
+  }
 }
 
 function dataFieldsFromSnapshot(snapshot) {
@@ -801,6 +876,7 @@ $("importDashboard").addEventListener("click", importDashboardAction);
 $("runDueSources").addEventListener("click", runDueSources);
 $("testSource").addEventListener("click", testSource);
 $("saveSource").addEventListener("click", saveSource);
+$("sourceFields").addEventListener("click", handleSourceFieldAction);
 $("collect").addEventListener("click", collectAll);
 $("publish").addEventListener("click", publish);
 $("render").addEventListener("click", renderCurrent);

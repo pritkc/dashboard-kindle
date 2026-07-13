@@ -84,7 +84,7 @@ The fixture setup starts with working CodexBar, ActivityWatch, HTTP JSON, and ma
 2. Keep the generated recommended JSON, or edit the fields required by the connector schema.
 3. Choose **Update data every**. This controls connector collection only; device polling and panel refresh are separate settings.
 4. Click **Test**.
-5. Review the returned field list. Use these paths in dashboard widgets, for example `$.metric` or `$.topApplications`.
+5. Expand the sample payload tree, choose useful fields, and copy the selected paths into dashboard widgets when needed. Examples include `$.metric`, `$.topApplications`, and `$.entities.0.state`.
 6. Click **Save**.
 
 Saved sources are collected by a durable scheduler. The source list shows the next scheduled collection and backoff state. **Run due now** executes only jobs whose scheduled time has arrived; **Collect sources** still performs an immediate manual retry of every configured source.

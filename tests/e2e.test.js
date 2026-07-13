@@ -307,6 +307,7 @@ test("weather, calendar, GitHub, Home Assistant, and authenticated HTTP source s
   });
   assert.ok(weather.fields.some((field) => field.path === "$.current.temperatureF"));
   assert.ok(weather.fields.some((field) => field.path === "$.daily"));
+  assert.ok(weather.fields.some((field) => field.path === "$.daily.0.highF"));
 
   const calendar = await postJson(`${base}/api/v1/sources/test`, {
     connectorId: "calendar.ics",
@@ -342,6 +343,7 @@ test("weather, calendar, GitHub, Home Assistant, and authenticated HTTP source s
   });
   assert.ok(homeAssistantTest.fields.some((field) => field.path === "$.summary.unavailable"));
   assert.ok(homeAssistantTest.fields.some((field) => field.path === "$.entities"));
+  assert.ok(homeAssistantTest.fields.some((field) => field.path === "$.entities.0.state"));
   assert.equal(homeAssistantTest.snapshot.payload.entities[0].entityId, "sensor.living_room_temperature");
 
   const homeAssistant = await postJson(`${base}/api/v1/sources`, {
