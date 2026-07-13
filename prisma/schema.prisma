@@ -1,0 +1,55 @@
+// The initial implementation uses a durable JSON state file so it can run without native dependencies.
+// This schema documents the intended SQLite migration boundary for the next persistence hardening pass.
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Device {
+  id        String   @id
+  name      String
+  tokenHash String
+  createdAt DateTime
+  revokedAt DateTime?
+}
+
+model Dashboard {
+  id        String   @id
+  name      String
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model DashboardRevision {
+  id             String   @id
+  dashboardId    String
+  definitionHash String
+  definitionJson String
+  createdAt      DateTime
+}
+
+model SourceSnapshot {
+  id          String   @id
+  sourceId    String
+  connectorId String
+  payloadHash String
+  state       String
+  payloadJson String
+  observedAt  DateTime
+  receivedAt  DateTime
+  validUntil  DateTime?
+}
+
+model RenderArtifact {
+  id          String   @id
+  dashboardId String
+  revisionId  String
+  fingerprint String
+  imageHash   String
+  imagePath   String
+  createdAt   DateTime
+}

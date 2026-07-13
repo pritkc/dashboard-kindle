@@ -1,0 +1,10 @@
+{
+  "provider": "codex",
+  "window": "weekly",
+  "used": 42,
+  "limit": 100,
+  "remaining": 58,
+  "resetAt": "2026-07-20T00:00:00.000Z",
+  "costUsd": 8.91,
+  "status": "fresh"
+}

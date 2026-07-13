@@ -1,0 +1,7 @@
+{
+  "service": "fixture-http",
+  "temperatureC": 21.4,
+  "humidity": 41,
+  "status": "ok",
+  "message": "HTTP fixture source is live"
+}

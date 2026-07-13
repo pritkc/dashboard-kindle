@@ -1,0 +1,10 @@
+.git/
+node_modules/
+.env
+.DS_Store
+.playwright-cli/
+.specstory/
+.vscode/
+data/state.json
+data/backups/
+data/artifacts/

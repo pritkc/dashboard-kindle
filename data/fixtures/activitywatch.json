@@ -1,0 +1,13 @@
+{
+  "date": "2026-07-13",
+  "activeMinutes": 286,
+  "codingMinutes": 173,
+  "browserMinutes": 64,
+  "topApplications": [
+    { "name": "Codex", "minutes": 128 },
+    { "name": "Terminal", "minutes": 45 },
+    { "name": "Chrome", "minutes": 39 },
+    { "name": "Calendar", "minutes": 18 }
+  ],
+  "hourly": [0, 0, 0, 0, 0, 0, 12, 34, 42, 38, 31, 24, 15, 28, 41, 21, 0, 0, 0, 0, 0, 0, 0, 0]
+}

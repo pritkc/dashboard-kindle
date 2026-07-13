@@ -1,0 +1,13 @@
+node_modules/
+data/state.json
+data/backups/
+data/artifacts/
+docs/screenshots/*.png
+!docs/screenshots/control-plane.png
+!docs/screenshots/work-render-route.png
+.env
+.DS_Store
+.playwright-cli/
+.specstory/
+.vscode/
+.cursorindexingignore

@@ -1,0 +1,11 @@
+{
+  "items": [
+    ["Start dashboard", "bin/dashboard-kindle.sh start"],
+    ["Stop dashboard", "bin/dashboard-kindle.sh stop"],
+    ["Refresh once", "bin/dashboard-kindle.sh refresh"],
+    ["Show status", "bin/dashboard-kindle.sh status"],
+    ["Re-enroll / configure", "bin/dashboard-kindle.sh configure"],
+    ["Restore normal sleep", "bin/dashboard-kindle.sh restore-power"],
+    ["Export diagnostics", "bin/dashboard-kindle.sh diagnostics"]
+  ]
+}

@@ -1,0 +1,23 @@
+services:
+  dashboard-kindle:
+    build: .
+    image: dashboard-kindle:local
+    container_name: dashboard-kindle
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      DASHBOARD_KINDLE_HOST: "0.0.0.0"
+      DASHBOARD_KINDLE_PORT: "8787"
+      DASHBOARD_KINDLE_DATA_DIR: "/data"
+      DASHBOARD_KINDLE_MASTER_KEY: "${DASHBOARD_KINDLE_MASTER_KEY:-dev-only-change-me}"
+    volumes:
+      - dashboard_kindle_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  dashboard_kindle_data:

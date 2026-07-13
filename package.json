@@ -1,0 +1,27 @@
+{
+  "name": "dashboard-kindle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.15.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node apps/server/src/main.js",
+    "start": "node apps/server/src/main.js",
+    "test": "node --test tests/*.test.js",
+    "test:e2e": "node --test tests/e2e.test.js",
+    "test:golden": "node --test tests/golden.test.js",
+    "lint": "node scripts/lint.js",
+    "typecheck": "node scripts/typecheck.js",
+    "build": "node scripts/build.js",
+    "seed": "node scripts/seed.js",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js",
+    "agent:dev": "node apps/agent/src/main.js",
+    "simulator": "node clients/simulator/src/main.js",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down"
+  }
+}

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard Kindle</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Dashboard Kindle</h1>
+        <p>Self-hosted e-ink dashboard control plane</p>
+      </div>
+      <div class="actions">
+        <button id="bootstrap">Seed + render</button>
+        <button id="refresh">Refresh</button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <aside class="panel">
+        <section>
+          <h2>Dashboards</h2>
+          <div id="dashboards" class="list"></div>
+        </section>
+        <section>
+          <h2>Sources</h2>
+          <div id="sources" class="list compact"></div>
+        </section>
+        <section>
+          <h2>Devices</h2>
+          <div id="devices" class="list compact"></div>
+          <button id="enroll">Enroll simulator</button>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <div class="toolbar">
+          <label>
+            Dashboard
+            <select id="dashboardSelect"></select>
+          </label>
+          <label>
+            Device profile
+            <select id="profileSelect">
+              <option value="work">Dashboard default</option>
+              <option value="kindle_basic_600x800">Kindle basic 600x800</option>
+              <option value="kindle_pw_758x1024">Kindle Paperwhite 758x1024</option>
+              <option value="trmnl_800x480">TRMNL 800x480</option>
+            </select>
+          </label>
+          <button id="collect">Collect sources</button>
+          <button id="publish">Publish revision</button>
+          <button id="render">Render</button>
+        </div>
+
+        <div class="previewRow">
+          <div class="previewBox">
+            <iframe id="preview" title="Exact dashboard render preview"></iframe>
+          </div>
+          <div class="inspector">
+            <h2>Inspector</h2>
+            <dl id="inspector"></dl>
+            <h2>Device assignment</h2>
+            <div class="assignRow">
+              <select id="deviceSelect"></select>
+              <button id="assign">Assign</button>
+            </div>
+            <h2>Latest artifact</h2>
+            <pre id="artifact"></pre>
+          </div>
+        </div>
+
+        <section class="editor">
+          <h2>Dashboard draft</h2>
+          <textarea id="definition"></textarea>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="/assets/app.js"></script>
+  </body>
+</html>
