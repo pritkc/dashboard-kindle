@@ -90,10 +90,14 @@
             Source id
             <input id="sourceId" type="text" placeholder="manual-status">
           </label>
-          <label>
-            Configuration JSON
-            <textarea id="sourceConfig" class="smallTextarea"></textarea>
-          </label>
+          <div id="sourceConfigForm" class="configForm"></div>
+          <details class="advancedConfig">
+            <summary>Advanced JSON</summary>
+            <label>
+              Configuration JSON
+              <textarea id="sourceConfig" class="smallTextarea"></textarea>
+            </label>
+          </details>
           <label>
             Update data every
             <select id="sourceInterval">

@@ -81,7 +81,7 @@ The setup status is resumable because the server derives each step from persiste
 The fixture setup starts with working CodexBar, ActivityWatch, HTTP JSON, and manual sources. To add a new source without editing code:
 
 1. In **Add Source**, pick a connector.
-2. Keep the generated recommended JSON, or edit the fields required by the connector schema.
+2. Fill the generated configuration fields. Use **Advanced JSON** only when you need to paste a full configuration object or edit nested objects such as HTTP headers.
 3. Choose **Update data every**. This controls connector collection only; device polling and panel refresh are separate settings.
 4. Click **Test**.
 5. Expand the sample payload tree, choose useful fields, and copy the selected paths into dashboard widgets when needed. Examples include `$.metric`, `$.topApplications`, and `$.entities.0.state`.

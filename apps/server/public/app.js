@@ -217,6 +217,7 @@ function renderSourceWizard() {
     $("sourceConnector").value = current;
   }
   if (!$("sourceConfig").value.trim()) fillSourceDefaults();
+  else renderSourceConfigForm(currentSourceManifest(), parseSourceConfigOrDefault());
 }
 
 function renderDevices() {
@@ -491,6 +492,7 @@ async function saveSource() {
 function sourceInput() {
   const id = $("sourceId").value.trim();
   const name = $("sourceName").value.trim();
+  syncConfigJsonFromForm({ strict: true });
   return {
     connectorId: $("sourceConnector").value,
     ...(id ? { id } : {}),
@@ -501,14 +503,19 @@ function sourceInput() {
 }
 
 function fillSourceDefaults() {
-  const manifest = state.data?.connectorManifests.find((item) => item.id === $("sourceConnector").value);
+  const manifest = currentSourceManifest();
   if (!manifest) return;
   $("sourceConfig").value = JSON.stringify(defaultConnectorConfig(manifest), null, 2);
   $("sourceInterval").value = String(selectIntervalOption(manifest.defaultCollectionIntervalSeconds ?? 300));
+  renderSourceConfigForm(manifest, parseSourceConfigOrDefault());
   state.sourceFields = [];
   state.sourceSamplePayload = null;
   state.selectedSourceField = null;
   renderSourceFields([], null);
+}
+
+function currentSourceManifest() {
+  return state.data?.connectorManifests.find((item) => item.id === $("sourceConnector").value);
 }
 
 function defaultConnectorConfig(manifest) {
@@ -539,6 +546,96 @@ function defaultValueForSchema(definition) {
 function selectIntervalOption(seconds) {
   const options = [...$("sourceInterval").options].map((option) => Number(option.value));
   return options.find((value) => value >= seconds) ?? options[0];
+}
+
+function renderSourceConfigForm(manifest, config = {}) {
+  if (!manifest) {
+    $("sourceConfigForm").innerHTML = "";
+    return;
+  }
+  const properties = Object.entries(manifest.configSchema?.properties ?? {});
+  $("sourceConfigForm").innerHTML = properties.length ? properties.map(([key, definition]) => {
+    const value = config[key] ?? defaultValueForSchema(definition);
+    const required = (manifest.configSchema?.required ?? []).includes(key) ? "Required" : "Optional";
+    const secret = isSecretConfigField(manifest, key);
+    return `
+      <label class="configField">
+        <span>${escapeHtml(configLabel(key))}<small>${required}${secret ? " · secret" : ""}</small></span>
+        ${renderConfigInput(key, definition, value, secret)}
+      </label>
+    `;
+  }).join("") : `<div class="fieldItem"><span>This connector does not need configuration.</span></div>`;
+}
+
+function renderConfigInput(key, definition, value, secret) {
+  const attr = `data-config-key="${escapeHtml(key)}"`;
+  if (definition.enum) {
+    return `<select ${attr}>${definition.enum.map((item) => `
+      <option value="${escapeHtml(item)}" ${value === item ? "selected" : ""}>${escapeHtml(item)}</option>
+    `).join("")}</select>`;
+  }
+  if (definition.type === "boolean") {
+    return `<span class="checkboxRow configCheckbox"><input type="checkbox" ${attr} ${value ? "checked" : ""}> Enabled</span>`;
+  }
+  if (definition.type === "number") {
+    return `<input ${attr} type="number" step="any" value="${escapeHtml(value ?? 0)}">`;
+  }
+  if (definition.type === "object" || definition.type === "array") {
+    return `<textarea ${attr} class="configTextarea">${escapeHtml(JSON.stringify(value ?? defaultValueForSchema(definition), null, 2))}</textarea>`;
+  }
+  return `<input ${attr} type="${secret ? "password" : "text"}" value="${escapeHtml(value ?? "")}">`;
+}
+
+function configLabel(key) {
+  return key.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase());
+}
+
+function isSecretConfigField(manifest, key) {
+  return (manifest.secretFields ?? []).some((field) => field === key || field.startsWith(`${key}.`));
+}
+
+function parseSourceConfigOrDefault() {
+  const manifest = currentSourceManifest();
+  try {
+    return parseJson($("sourceConfig").value, "Source configuration JSON");
+  } catch {
+    return manifest ? defaultConnectorConfig(manifest) : {};
+  }
+}
+
+function syncConfigJsonFromForm(options = {}) {
+  const manifest = currentSourceManifest();
+  if (!manifest) return;
+  const current = parseSourceConfigOrDefault();
+  try {
+    for (const [key, definition] of Object.entries(manifest.configSchema?.properties ?? {})) {
+      const input = $("sourceConfigForm").querySelector(`[data-config-key="${cssEscape(key)}"]`);
+      if (!input) continue;
+      current[key] = valueFromConfigInput(input, definition, key);
+    }
+  } catch (error) {
+    if (options.strict) throw error;
+    return;
+  }
+  $("sourceConfig").value = JSON.stringify(current, null, 2);
+}
+
+function syncConfigFormFromJson() {
+  renderSourceConfigForm(currentSourceManifest(), parseSourceConfigOrDefault());
+}
+
+function valueFromConfigInput(input, definition, key) {
+  if (definition.type === "boolean") return input.checked;
+  if (definition.type === "number") return Number(input.value);
+  if (definition.type === "object" || definition.type === "array") {
+    return parseJson(input.value, `${configLabel(key)} JSON`);
+  }
+  return input.value;
+}
+
+function cssEscape(value) {
+  if (window.CSS?.escape) return window.CSS.escape(value);
+  return String(value).replace(/["\\]/g, "\\$&");
 }
 
 function renderSourceFields(fields, payload = state.sourceSamplePayload) {
@@ -877,6 +974,9 @@ $("runDueSources").addEventListener("click", runDueSources);
 $("testSource").addEventListener("click", testSource);
 $("saveSource").addEventListener("click", saveSource);
 $("sourceFields").addEventListener("click", handleSourceFieldAction);
+$("sourceConfigForm").addEventListener("input", syncConfigJsonFromForm);
+$("sourceConfigForm").addEventListener("change", syncConfigJsonFromForm);
+$("sourceConfig").addEventListener("blur", syncConfigFormFromJson);
 $("collect").addEventListener("click", collectAll);
 $("publish").addEventListener("click", publish);
 $("render").addEventListener("click", renderCurrent);
