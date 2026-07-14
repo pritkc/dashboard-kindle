@@ -36,6 +36,7 @@ export function renderDashboardSvg(definition, snapshots, requestedProfile = {})
   const foreground = profile.invert ? "#fff" : "#111";
   const muted = profile.invert ? "#bbb" : "#555";
   const diagnostics = [];
+  const clipDefs = [];
   const layoutBox = layoutBounds(definition, profile, width, height);
   const body = definition.widgets.map((widget, index) => renderWidget(widget, snapshots, {
     foreground,
@@ -43,7 +44,8 @@ export function renderDashboardSvg(definition, snapshots, requestedProfile = {})
     background,
     diagnostics,
     layoutBox,
-    clipId: `widget-clip-${escapeId(widget.id ?? index)}`
+    clipId: `widget-clip-${escapeId(widget.id ?? index)}`,
+    clipDefs
   })).join("\n");
   const rotation = rotationTransform(profile, width, height);
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -55,6 +57,9 @@ export function renderDashboardSvg(definition, snapshots, requestedProfile = {})
     .text{font:500 22px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans","Arial Unicode MS",sans-serif;fill:${foreground}}
     .small{font:500 15px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans","Arial Unicode MS",sans-serif;fill:${muted}}
   </style>
+  <defs>
+  ${clipDefs.join("\n")}
+  </defs>
   <g${rotation ? ` transform="${rotation}"` : ""}>
   ${body}
   </g>
@@ -72,7 +77,8 @@ export function renderDashboardDiagnostics(definition, snapshots, requestedProfi
     background: "#fff",
     diagnostics,
     layoutBox,
-    clipId: `widget-clip-${escapeId(widget.id ?? index)}`
+    clipId: `widget-clip-${escapeId(widget.id ?? index)}`,
+    clipDefs: []
   }));
   return diagnostics;
 }
@@ -89,8 +95,8 @@ function renderWidget(widget, snapshots, context) {
   const stale = snapshot && snapshot.validUntil && Date.parse(snapshot.validUntil) < Date.now();
   const stateLabel = !snapshot ? "missing" : stale ? "stale" : snapshot.state;
   const stateMessage = widgetStateMessage(snapshot, stale);
+  context.clipDefs.push(`<clipPath id="${context.clipId}"><rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="4"/></clipPath>`);
   const chrome = `<g>
-    <clipPath id="${context.clipId}"><rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="4"/></clipPath>
     <rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="4" fill="none" stroke="${palette.foreground}" stroke-width="2"/>
     <text x="${box.x + 14}" y="${box.y + 28}" class="title">${title}</text>
     <text x="${box.x + box.w - 12}" y="${box.y + 24}" text-anchor="end" class="small">${escapeXml(stateLabel)}</text>
