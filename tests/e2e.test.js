@@ -186,6 +186,43 @@ test("source scheduler runs due jobs and backs off failures", async (t) => {
   assert.ok(Date.parse(failedJob.nextRunAt) > Date.now());
 });
 
+test("source snapshot history keeps recent immutable snapshots with retention", async (t) => {
+  const state = loadState();
+  state.retention.snapshotHistoryLimit = 2;
+  const server = createAppServer(state);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const suffix = Date.now().toString(36);
+  const sourceId = `history-${suffix}`;
+
+  const webhook = await postJson(`${base}/api/v1/sources`, {
+    id: sourceId,
+    connectorId: "webhook.json",
+    name: "History webhook",
+    config: { initialPayload: { value: 0 } }
+  });
+
+  for (const value of [1, 2, 3]) {
+    const response = await fetch(`${base}${webhook.webhookUrl}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value })
+    });
+    assert.equal(response.status, 202);
+  }
+
+  const publicState = await getJson(`${base}/api/v1/state`);
+  assert.equal(publicState.retention.snapshotHistoryLimit, 2);
+  assert.equal(publicState.snapshots[sourceId].payload.value, 3);
+  assert.deepEqual(publicState.snapshotHistory[sourceId].map((snapshot) => snapshot.payload.value), [3, 2]);
+
+  const diagnostics = await getJson(`${base}/api/v1/diagnostics`);
+  assert.equal(diagnostics.snapshotHistory[sourceId].length, 2);
+  assert.equal(diagnostics.snapshotHistory[sourceId][0].payload, undefined);
+  assert.equal(diagnostics.snapshotHistory[sourceId][0].payloadHash, publicState.snapshotHistory[sourceId][0].payloadHash);
+});
+
 test("device management supports policy presets, forced refresh, token rotation, and revocation", async (t) => {
   const state = await bootstrapState(loadState());
   const server = createAppServer(state);

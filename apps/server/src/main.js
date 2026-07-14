@@ -34,6 +34,7 @@ const adminToken = process.env.DASHBOARD_KINDLE_ADMIN_TOKEN ?? (loopbackHost ? "
 const adminCookieName = "dashboard_kindle_admin";
 const dashboardWidgetTypes = new Set(["clock", "metric", "progress", "list", "bars", "status", "alert", "text"]);
 const schedulerTickMs = Number(process.env.DASHBOARD_KINDLE_SCHEDULER_TICK_MS ?? 5000);
+const defaultSnapshotHistoryLimit = 25;
 const refreshPresets = {
   battery_saver: {
     id: "battery_saver",
@@ -80,6 +81,7 @@ export function loadState() {
   state.pairingCodes ??= {};
   state.deviceCommands ??= {};
   state.setup ??= { completed: false, completedSteps: [] };
+  normalizeSnapshotHistory(state);
   ensureSourceJobs(state);
   ensureInitialRevisions(state);
   return state;
@@ -313,7 +315,7 @@ export async function collectSource(state, sourceId, options = {}) {
   if (!instance) throw httpError(404, `Unknown source ${sourceId}`);
   try {
     const snapshot = await collectConnector(instance);
-    state.snapshots[sourceId] = snapshot;
+    recordSourceSnapshot(state, sourceId, snapshot);
     state.sourceHealth[sourceId] = {
       sourceId,
       state: snapshot.state,
@@ -335,6 +337,54 @@ export async function collectSource(state, sourceId, options = {}) {
     audit(state, "source.collect.failed", { sourceId, error: redactError(error) });
     throw error;
   }
+}
+
+function normalizeSnapshotHistory(state) {
+  state.snapshots ??= {};
+  state.snapshotHistory = state.snapshotHistory && typeof state.snapshotHistory === "object" && !Array.isArray(state.snapshotHistory)
+    ? state.snapshotHistory
+    : {};
+  state.retention = state.retention && typeof state.retention === "object" && !Array.isArray(state.retention)
+    ? state.retention
+    : {};
+  state.retention.snapshotHistoryLimit = normalizedSnapshotHistoryLimit(state);
+  for (const [sourceId, snapshot] of Object.entries(state.snapshots)) {
+    if (!state.snapshotHistory[sourceId]?.length && snapshot) state.snapshotHistory[sourceId] = [snapshot];
+  }
+  for (const [sourceId, history] of Object.entries(state.snapshotHistory)) {
+    if (!state.connectorInstances[sourceId]) {
+      delete state.snapshotHistory[sourceId];
+      continue;
+    }
+    state.snapshotHistory[sourceId] = dedupeSnapshots(Array.isArray(history) ? history : [])
+      .slice(0, state.retention.snapshotHistoryLimit);
+  }
+}
+
+function normalizedSnapshotHistoryLimit(state) {
+  const requested = Number(state?.retention?.snapshotHistoryLimit ?? process.env.DASHBOARD_KINDLE_SNAPSHOT_HISTORY_LIMIT ?? defaultSnapshotHistoryLimit);
+  if (!Number.isFinite(requested) || requested < 1) return defaultSnapshotHistoryLimit;
+  return Math.min(500, Math.round(requested));
+}
+
+function recordSourceSnapshot(state, sourceId, snapshot) {
+  normalizeSnapshotHistory(state);
+  state.snapshots[sourceId] = snapshot;
+  const limit = normalizedSnapshotHistoryLimit(state);
+  const existing = state.snapshotHistory[sourceId] ?? [];
+  state.snapshotHistory[sourceId] = dedupeSnapshots([snapshot, ...existing]).slice(0, limit);
+  state.retention.snapshotHistoryLimit = limit;
+}
+
+function dedupeSnapshots(snapshots) {
+  const seen = new Set();
+  const filtered = [];
+  for (const snapshot of snapshots) {
+    if (!snapshot?.id || seen.has(snapshot.id)) continue;
+    seen.add(snapshot.id);
+    filtered.push(snapshot);
+  }
+  return filtered.sort((left, right) => Date.parse(right.receivedAt ?? right.observedAt ?? 0) - Date.parse(left.receivedAt ?? left.observedAt ?? 0));
 }
 
 export function publishDashboard(state, dashboardId) {
@@ -1322,6 +1372,7 @@ async function route(request, response, state) {
     return sendJson(response, 200, {
       health: "ok",
       sources: state.sourceHealth,
+      snapshotHistory: publicSnapshotHistory(state, { includePayload: false }),
       devices: Object.values(state.devices).map(withoutToken),
       deviceCommands: publicDeviceCommands(state),
       checkins: state.deviceCheckins,
@@ -1339,7 +1390,9 @@ function publicState(state) {
     connectorManifests: Object.values(state.connectorManifests),
     connectorInstances: Object.values(state.connectorInstances).map((instance) => ({ ...instance, config: redact(instance.config) })),
     snapshots: state.snapshots,
+    snapshotHistory: publicSnapshotHistory(state, { includePayload: true }),
     sourceHealth: state.sourceHealth,
+    retention: state.retention,
     dashboards: Object.values(state.dashboards),
     dashboardRevisions: Object.values(state.dashboardRevisions),
     renderArtifacts: Object.values(state.renderArtifacts).map((artifact) => ({ ...artifact, imagePath: path.relative(repoPath(), artifact.imagePath), svgPath: path.relative(repoPath(), artifact.svgPath), pgmPath: path.relative(repoPath(), artifact.pgmPath) })),
@@ -1351,6 +1404,25 @@ function publicState(state) {
     setup: setupStatus(state),
     pairingCodes: Object.values(state.pairingCodes ?? {}).map(({ token, ...record }) => record)
   };
+}
+
+function publicSnapshotHistory(state, options = {}) {
+  normalizeSnapshotHistory(state);
+  return Object.fromEntries(Object.entries(state.snapshotHistory).map(([sourceId, history]) => [
+    sourceId,
+    history.map((snapshot) => ({
+      id: snapshot.id,
+      sourceId: snapshot.sourceId,
+      connectorId: snapshot.connectorId,
+      observedAt: snapshot.observedAt,
+      receivedAt: snapshot.receivedAt,
+      state: snapshot.state,
+      payloadHash: snapshot.payloadHash,
+      ...(options.includePayload ? { payload: snapshot.payload } : {}),
+      validUntil: snapshot.validUntil,
+      diagnostics: snapshot.diagnostics
+    }))
+  ]));
 }
 
 function dataFields(value, prefix = "$") {

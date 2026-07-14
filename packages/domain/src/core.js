@@ -154,7 +154,11 @@ export function defaultState() {
     connectorManifests: connectorManifests(),
     connectorInstances: seedConnectorInstances(),
     snapshots: {},
+    snapshotHistory: {},
     sourceHealth: {},
+    retention: {
+      snapshotHistoryLimit: 25
+    },
     dashboards: seedDashboards(),
     dashboardRevisions: {},
     renderArtifacts: {},
