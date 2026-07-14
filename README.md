@@ -41,6 +41,7 @@ pnpm test
 pnpm lint
 pnpm typecheck
 pnpm ci:local
+pnpm migrate
 pnpm build
 pnpm backup
 pnpm agent:dev
@@ -87,4 +88,4 @@ This is original code. Inker was evaluated as a reference, but its current repos
 
 ## Current Limits
 
-The app uses a durable JSON state file for the zero-dependency first deployment. `prisma/schema.prisma` documents the planned SQLite migration boundary. Physical Kindle framebuffer behavior is packaged as a KUAL shell client but still requires hardware validation.
+The app stores runtime state in `data/dashboard-kindle.sqlite` with SQLite WAL mode. If an older `data/state.json` exists, the first migration imports it into SQLite and writes a timestamped import backup under `data/backups`. Physical Kindle framebuffer behavior is packaged as a KUAL shell client but still requires hardware validation.

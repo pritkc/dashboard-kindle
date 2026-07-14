@@ -223,7 +223,7 @@ test("source snapshot history keeps recent immutable snapshots with retention", 
   const diagnostics = await getJson(`${base}/api/v1/diagnostics`);
   assert.equal(["ok", "degraded"].includes(diagnostics.health), true);
   assert.equal(diagnostics.counts.sources >= 1, true);
-  assert.equal(diagnostics.database.kind, "json");
+  assert.equal(diagnostics.database.kind, "sqlite");
   assert.equal(diagnostics.renderer.backend, "imagemagick");
   assert.equal(diagnostics.snapshotHistory[sourceId].length, 2);
   assert.equal(diagnostics.snapshotHistory[sourceId][0].payload, undefined);

@@ -17,14 +17,14 @@ Default local values:
 * Local development master key: `dev-only-change-me`
 * Data directory: `./data`
 * Fixtures: `data/fixtures`
-* Runtime state: `data/state.json`
+* Runtime state: `data/dashboard-kindle.sqlite`
 * Rendered images: `data/artifacts`
 * Backup files kept: `10`
 * Render artifacts kept per dashboard: `20`
 
-Do not commit `.env`, `data/state.json`, backups, or generated artifacts. They can contain device token hashes, local paths, rendered private dashboard content, or other machine-specific data.
+Do not commit `.env`, `data/state.json`, `data/*.sqlite`, backups, or generated artifacts. They can contain device token hashes, local paths, rendered private dashboard content, or other machine-specific data.
 
-Set `DASHBOARD_KINDLE_MASTER_KEY` to a long random value before storing real connector credentials. The server uses it to encrypt manifest-declared connector secret fields in `data/state.json`; changing or losing it prevents those saved secrets from being decrypted.
+Set `DASHBOARD_KINDLE_MASTER_KEY` to a long random value before storing real connector credentials. The server uses it to encrypt manifest-declared connector secret fields before they are written to SQLite; changing or losing it prevents those saved secrets from being decrypted.
 
 Retention defaults can be overridden with `DASHBOARD_KINDLE_BACKUP_LIMIT`, `DASHBOARD_KINDLE_RENDER_ARTIFACT_LIMIT_PER_DASHBOARD`, and `DASHBOARD_KINDLE_SNAPSHOT_HISTORY_LIMIT`.
 
@@ -344,7 +344,7 @@ If you used the UI pairing bundle, unpack the downloaded archive and copy its `d
 Stop the server, then remove runtime files:
 
 ```bash
-rm -rf data/state.json data/artifacts data/backups
+rm -rf data/state.json data/*.sqlite data/*.sqlite-shm data/*.sqlite-wal data/artifacts data/backups
 pnpm seed
 ```
 

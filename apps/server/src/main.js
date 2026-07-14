@@ -9,24 +9,22 @@ import {
   defaultState,
   hashPayload,
   nowIso,
-  readJson,
   redact,
   repoPath,
-  sha256,
-  writeJson
+  sha256
 } from "../../../packages/domain/src/core.js";
 import { collectConnector } from "../../../packages/connectors-built-in/src/connectors.js";
 import { renderFingerprint, renderHtml, writeRenderArtifact } from "../../../packages/renderer/src/render.js";
 import { createDeviceToken, hashDeviceToken, parseBearer, verifyDeviceToken, buildDisplayHeaders } from "../../../packages/device-protocol/src/protocol.js";
 import { resolveProfile } from "../../../packages/device-profiles/src/profiles.js";
 import { calculateWakeDecision } from "../../../packages/scheduling/src/scheduling.js";
+import { loadStoredState, saveStoredState, stateStorageInfo } from "../../../packages/storage/src/sqlite-state.js";
 
 loadEnvFile(repoPath(".env"));
 
 const host = process.env.DASHBOARD_KINDLE_HOST ?? "127.0.0.1";
 const port = Number(process.env.DASHBOARD_KINDLE_PORT ?? 8787);
 const dataDir = path.resolve(process.env.DASHBOARD_KINDLE_DATA_DIR ?? repoPath("data"));
-const statePath = path.join(dataDir, "state.json");
 const backupDir = path.join(dataDir, "backups");
 const publicDir = repoPath("apps/server/public");
 const kindleClientDir = repoPath("clients/kindle-kual/dashboard-kindle");
@@ -84,7 +82,7 @@ function loadEnvFile(filePath) {
 }
 
 export function loadState() {
-  const state = readJson(statePath, null) ?? defaultState();
+  const state = loadStoredState(dataDir) ?? defaultState();
   decryptConnectorSecretsInPlace(state);
   state.pairingCodes ??= {};
   state.deviceCommands ??= {};
@@ -100,7 +98,7 @@ export function loadState() {
 }
 
 export function saveState(state) {
-  writeJson(statePath, stateForStorage(state));
+  saveStoredState(dataDir, stateForStorage(state));
 }
 
 export function stateForStorage(state) {
@@ -808,10 +806,7 @@ function diagnosticsPayload(state) {
     health: failedSources.length ? "degraded" : "ok",
     generatedAt: nowIso(),
     database: {
-      kind: "json",
-      persistent: fs.existsSync(statePath),
-      path: path.relative(repoPath(), statePath),
-      bytes: fs.existsSync(statePath) ? fs.statSync(statePath).size : 0
+      ...relativeStorageInfo()
     },
     renderer: {
       backend: "imagemagick",
@@ -848,6 +843,16 @@ function diagnosticsPayload(state) {
       auditEvents: recentAuditFailures
     },
     auditEvents: (state.auditEvents ?? []).slice(-50)
+  };
+}
+
+function relativeStorageInfo() {
+  const info = stateStorageInfo(dataDir);
+  return {
+    ...info,
+    path: path.relative(repoPath(), info.path),
+    walPath: path.relative(repoPath(), info.walPath),
+    legacyJsonPath: path.relative(repoPath(), info.legacyJsonPath)
   };
 }
 
@@ -1556,7 +1561,7 @@ async function route(request, response, state) {
   if (request.method === "GET" && url.pathname === "/favicon.ico") return send(response, 204, null);
   if (request.method === "GET" && url.pathname.startsWith("/assets/")) return serveStatic(response, url.pathname.replace("/assets/", ""));
   if (request.method === "GET" && url.pathname === "/api/v1/health") {
-    return sendJson(response, 200, { status: "ok", database: fs.existsSync(statePath) ? "persistent" : "memory", renderer: "imagemagick", adminAuth: Boolean(adminToken), at: nowIso() });
+    return sendJson(response, 200, { status: "ok", database: stateStorageInfo(dataDir).persistent ? "persistent" : "memory", renderer: "imagemagick", adminAuth: Boolean(adminToken), at: nowIso() });
   }
   if (request.method === "POST" && url.pathname === "/api/v1/admin/session") {
     const body = await readBody(request);

@@ -10,6 +10,7 @@ pnpm typecheck
 pnpm audit:deps
 pnpm scan:secrets
 pnpm license:check
+pnpm migrate
 pnpm build
 pnpm container:smoke
 ```
@@ -24,4 +25,4 @@ After an intentional renderer change, review the output visually and update appr
 UPDATE_GOLDEN=1 pnpm test:golden
 ```
 
-`pnpm ci:local` runs the local quality gate: linting, syntax checks, dependency inventory, secret scanning, license/runtime pinning checks, unit and E2E tests, golden-image tests, build packaging, and a health smoke test against a temporary server. In GitHub Actions, the same gates run before building the Docker image; the final smoke step starts that image and verifies `/api/v1/health`, administrator protection on `/api/v1/state`, and the root UI route.
+`pnpm ci:local` runs the local quality gate: linting, syntax checks, dependency inventory, secret scanning, license/runtime pinning checks, SQLite migration verification, unit and E2E tests, golden-image tests, build packaging, and a health smoke test against a temporary server. In GitHub Actions, the same gates run before building the Docker image; the final smoke step starts that image and verifies `/api/v1/health`, administrator protection on `/api/v1/state`, and the root UI route.

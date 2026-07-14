@@ -1,15 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { repoPath } from "../packages/domain/src/core.js";
+import { loadStoredState } from "../packages/storage/src/sqlite-state.js";
 
 const dataDir = path.resolve(process.env.DASHBOARD_KINDLE_DATA_DIR ?? repoPath("data"));
 const backupDir = path.join(dataDir, "backups");
 fs.mkdirSync(backupDir, { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const target = path.join(backupDir, `dashboard-kindle-${stamp}.json`);
-const statePath = path.join(dataDir, "state.json");
-if (!fs.existsSync(statePath)) throw new Error("No state.json exists. Run pnpm seed first.");
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+const state = loadStoredState(dataDir);
+if (!state) throw new Error("No stored state exists. Run pnpm seed first.");
 const backup = {
   createdAt: new Date().toISOString(),
   state

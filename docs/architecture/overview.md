@@ -8,4 +8,4 @@ Dashboard Kindle is split into explicit boundaries:
 * Device protocol endpoints publish the assigned image to thin clients with scoped bearer tokens.
 * Scheduling calculates next useful polling without depending on a Kindle clock.
 
-The current implementation stores state in `data/state.json` and artifacts in `data/artifacts`. The package layout mirrors the intended long-term monorepo boundaries.
+The current implementation stores state in `data/dashboard-kindle.sqlite` with SQLite WAL mode and artifacts in `data/artifacts`. The package layout mirrors the intended long-term monorepo boundaries.

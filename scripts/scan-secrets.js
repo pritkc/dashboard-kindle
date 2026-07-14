@@ -38,6 +38,7 @@ console.log("Secret scan passed.");
 function shouldIgnore(relative, file) {
   if (ignoredPaths.has(relative)) return true;
   if (ignoredPathPrefixes.some((prefix) => relative.startsWith(prefix))) return true;
+  if (/^data\/.+\.sqlite(?:-shm|-wal)?$/.test(relative)) return true;
   if (binaryExtensions.has(path.extname(file).toLowerCase())) return true;
   const stat = fs.statSync(file);
   if (stat.size > 2_000_000) return true;
