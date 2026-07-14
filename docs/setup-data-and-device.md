@@ -237,7 +237,20 @@ Presets:
 | Near Real-Time | Up to every 1 minute | Every 4 changed images | Off |
 | Custom | User-selected | User-selected | User-selected |
 
-## 9. Use the Simulator
+## 9. Back Up and Restore
+
+Use **Backup / Restore** in the UI to create a downloadable state backup. To restore, paste backup JSON into the restore box, click **Preview restore**, review schema, device, artifact, and connector-secret warnings, then click **Restore**.
+
+CLI backup and restore are also available:
+
+```bash
+pnpm backup
+pnpm restore data/backups/<backup>.json
+```
+
+Keep `DASHBOARD_KINDLE_MASTER_KEY` stable across backups if connector secrets are stored.
+
+## 10. Use the Simulator
 
 With the server running:
 
@@ -257,7 +270,7 @@ To reuse an existing token:
 DASHBOARD_KINDLE_DEVICE_TOKEN=<device-token> pnpm simulator
 ```
 
-## 10. Kindle Compatibility
+## 11. Kindle Compatibility
 
 Dashboard Kindle’s physical client is a KUAL extension. A stock Kindle cannot run it until the device has a jailbreak and KUAL installed.
 The **Pair Device** panel shows these same warnings before it creates a bundle.
@@ -276,7 +289,7 @@ Known current limitations:
 * The server/device protocol is tested in simulator and with generated KUAL packages; physical framebuffer behavior still needs hardware validation.
 * Keep the server on a trusted LAN or behind HTTPS. Do not expose port `8787` directly to the public internet.
 
-## 11. Configure Kindle KUAL Client
+## 12. Configure Kindle KUAL Client
 
 Build the package:
 
@@ -308,7 +321,7 @@ Then run `Refresh once` to test a single download, followed by `Start dashboard`
 
 If you used the UI pairing bundle, unpack the downloaded archive and copy its `dashboard-kindle` directory to `/mnt/us/extensions/dashboard-kindle`; the config file is already filled in.
 
-## 12. Reset Local Runtime Data
+## 13. Reset Local Runtime Data
 
 Stop the server, then remove runtime files:
 

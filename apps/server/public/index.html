@@ -33,6 +33,23 @@
           <button id="completeSetup" class="secondary">Mark setup complete</button>
         </section>
         <section>
+          <h2>Backup / Restore</h2>
+          <div id="backupList" class="list compact"></div>
+          <div class="buttonRow">
+            <button id="createBackup">Create backup</button>
+            <button id="refreshBackups" class="secondary">Refresh</button>
+          </div>
+          <label>
+            Restore JSON
+            <textarea id="restoreBackupJson" class="smallTextarea"></textarea>
+          </label>
+          <div class="buttonRow">
+            <button id="previewBackup" class="secondary">Preview restore</button>
+            <button id="restoreBackup" class="secondary danger">Restore</button>
+          </div>
+          <div id="backupPreview" class="backupPreview"></div>
+        </section>
+        <section>
           <h2>Dashboards</h2>
           <div id="dashboards" class="list"></div>
         </section>

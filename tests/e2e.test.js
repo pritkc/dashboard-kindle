@@ -457,6 +457,43 @@ test("backup and restore scripts operate on state", async () => {
   }
 });
 
+test("backup API supports download, preview, and restore", async (t) => {
+  const state = await bootstrapState(loadState());
+  const server = createAppServer(state);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const suffix = Date.now().toString(36);
+
+  const created = await postJson(`${base}/api/v1/backups`, {});
+  assert.match(created.backup.fileName, /^dashboard-kindle-.+\.json$/);
+  assert.ok(created.backup.bytes > 0);
+
+  const download = await fetch(`${base}${created.backup.downloadUrl}`, { headers: adminHeaders });
+  assert.equal(download.status, 200);
+  const backup = JSON.parse(await download.text());
+  assert.equal(backup.kind, "dashboard-kindle.backup");
+  assert.ok(backup.state.dashboards.work);
+
+  const preview = await postJson(`${base}/api/v1/backups/preview`, { backup });
+  assert.equal(preview.valid, true);
+  assert.equal(preview.summary.dashboards, Object.keys(backup.state.dashboards).length);
+
+  const temporary = await postJson(`${base}/api/v1/dashboard-templates/clock-status/clone`, {
+    id: `temporary-${suffix}`,
+    name: "Temporary dashboard"
+  });
+  assert.equal(temporary.dashboard.name, "Temporary dashboard");
+  const withTemporary = await getJson(`${base}/api/v1/dashboards`);
+  assert.equal(withTemporary.some((dashboard) => dashboard.id === `temporary-${suffix}`), true);
+
+  const restored = await postJson(`${base}/api/v1/backups/restore`, { backup });
+  assert.equal(restored.valid, true);
+  const dashboards = await getJson(`${base}/api/v1/dashboards`);
+  assert.equal(dashboards.some((dashboard) => dashboard.id === `temporary-${suffix}`), false);
+  assert.equal(dashboards.some((dashboard) => dashboard.id === "work"), true);
+});
+
 test("render artifact retention removes old files while preserving current device artifacts", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dashboard-kindle-artifacts-"));
   const state = loadState();

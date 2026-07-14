@@ -27,6 +27,7 @@ const host = process.env.DASHBOARD_KINDLE_HOST ?? "127.0.0.1";
 const port = Number(process.env.DASHBOARD_KINDLE_PORT ?? 8787);
 const dataDir = path.resolve(process.env.DASHBOARD_KINDLE_DATA_DIR ?? repoPath("data"));
 const statePath = path.join(dataDir, "state.json");
+const backupDir = path.join(dataDir, "backups");
 const publicDir = repoPath("apps/server/public");
 const kindleClientDir = repoPath("clients/kindle-kual/dashboard-kindle");
 const loopbackHost = host === "127.0.0.1" || host === "localhost" || host === "::1";
@@ -569,6 +570,132 @@ function deleteRenderArtifactFiles(artifact) {
   for (const filePath of [artifact?.imagePath, artifact?.svgPath, artifact?.pgmPath]) {
     if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
   }
+}
+
+function createStateBackup(state) {
+  fs.mkdirSync(backupDir, { recursive: true });
+  const createdAt = nowIso();
+  const fileName = `dashboard-kindle-${createdAt.replace(/[:.]/g, "-")}.json`;
+  const filePath = path.join(backupDir, fileName);
+  const backup = {
+    kind: "dashboard-kindle.backup",
+    version: 1,
+    createdAt,
+    state: stateForStorage(state)
+  };
+  fs.writeFileSync(filePath, `${JSON.stringify(backup, null, 2)}\n`);
+  cleanupBackupFiles(state);
+  audit(state, "backup.created", { fileName });
+  return backupRecord(filePath);
+}
+
+function listBackups() {
+  if (!fs.existsSync(backupDir)) return [];
+  return fs.readdirSync(backupDir)
+    .filter((name) => /^dashboard-kindle-.+\.json$/.test(name))
+    .map((name) => backupRecord(path.join(backupDir, name)))
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+}
+
+function backupRecord(filePath) {
+  const stat = fs.statSync(filePath);
+  let createdAt = new Date(stat.mtimeMs).toISOString();
+  try {
+    const backup = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    createdAt = backup.createdAt ?? createdAt;
+  } catch {
+    // Keep filesystem timestamp for partially readable backup files.
+  }
+  return {
+    fileName: path.basename(filePath),
+    createdAt,
+    bytes: stat.size,
+    downloadUrl: `/api/v1/backups/${encodeURIComponent(path.basename(filePath))}`
+  };
+}
+
+function backupPath(fileName) {
+  const safeName = path.basename(decodeURIComponent(fileName));
+  if (!/^dashboard-kindle-.+\.json$/.test(safeName)) throw httpError(400, "Backup file name is invalid");
+  const filePath = path.join(backupDir, safeName);
+  if (!filePath.startsWith(backupDir) || !fs.existsSync(filePath)) throw httpError(404, "Backup not found");
+  return filePath;
+}
+
+function cleanupBackupFiles(state) {
+  normalizeRetention(state);
+  for (const backup of listBackups().slice(state.retention.backupLimit)) {
+    fs.unlinkSync(path.join(backupDir, backup.fileName));
+  }
+}
+
+function backupStateFromPayload(payload) {
+  const statePayload = payload?.state ?? payload;
+  if (!statePayload || typeof statePayload !== "object" || Array.isArray(statePayload)) throw httpError(400, "Backup payload must contain a state object");
+  return statePayload;
+}
+
+function previewBackupPayload(payload) {
+  const restoredState = backupStateFromPayload(payload);
+  const summary = {
+    schemaVersion: restoredState.schemaVersion ?? null,
+    dashboards: Object.keys(restoredState.dashboards ?? {}).length,
+    sources: Object.keys(restoredState.connectorInstances ?? {}).length,
+    devices: Object.keys(restoredState.devices ?? {}).length,
+    renderArtifacts: Object.keys(restoredState.renderArtifacts ?? {}).length,
+    snapshots: Object.keys(restoredState.snapshots ?? {}).length,
+    snapshotHistory: Object.values(restoredState.snapshotHistory ?? {}).reduce((total, history) => total + (Array.isArray(history) ? history.length : 0), 0)
+  };
+  const warnings = [];
+  if (restoredState.schemaVersion !== 1) warnings.push(`Backup schema version ${restoredState.schemaVersion ?? "missing"} may not be compatible.`);
+  if (!restoredState.dashboards || !Object.keys(restoredState.dashboards).length) warnings.push("Backup has no dashboards.");
+  if (!restoredState.connectorManifests) warnings.push("Backup is missing connector manifests.");
+  if (Object.keys(restoredState.devices ?? {}).length) warnings.push("Restoring will replace device records, assignments, token hashes, and check-in state.");
+  if (Object.keys(restoredState.renderArtifacts ?? {}).length) warnings.push("Rendered artifact records may reference files that are not present on this machine.");
+  const secretCounts = backupSecretCounts(restoredState);
+  if (secretCounts.encrypted) warnings.push(`${secretCounts.encrypted} connector secret field${secretCounts.encrypted === 1 ? "" : "s"} are encrypted and require the same master key.`);
+  if (secretCounts.plaintext) warnings.push(`${secretCounts.plaintext} connector secret field${secretCounts.plaintext === 1 ? "" : "s"} appear to be plaintext in this backup.`);
+  return { valid: warnings.every((warning) => !warning.startsWith("Backup schema version") && warning !== "Backup has no dashboards."), summary, warnings, secretCounts };
+}
+
+function backupSecretCounts(restoredState) {
+  let encrypted = 0;
+  let plaintext = 0;
+  for (const instance of Object.values(restoredState.connectorInstances ?? {})) {
+    const manifest = restoredState.connectorManifests?.[instance.connectorId];
+    for (const secretPath of manifest?.secretFields ?? []) {
+      const value = readPath(instance.config, secretPath);
+      if (value === undefined || value === null || value === "") continue;
+      if (isEncryptedValue(value)) encrypted += 1;
+      else plaintext += 1;
+    }
+  }
+  return { encrypted, plaintext };
+}
+
+function restoreStateFromBackup(currentState, payload) {
+  const restoredState = structuredClone(backupStateFromPayload(payload));
+  const preview = previewBackupPayload(payload);
+  if (!preview.valid) throw httpError(400, `Backup is not restorable: ${preview.warnings.join(" ")}`);
+  decryptConnectorSecretsInPlace(restoredState);
+  restoredState.pairingCodes ??= {};
+  restoredState.deviceCommands ??= {};
+  restoredState.setup ??= { completed: false, completedSteps: [] };
+  restoredState.auditEvents = Array.isArray(restoredState.auditEvents) ? restoredState.auditEvents : [];
+  normalizeSnapshotHistory(restoredState);
+  normalizeRetention(restoredState);
+  cleanupRenderArtifacts(restoredState);
+  ensureSourceJobs(restoredState);
+  ensureInitialRevisions(restoredState);
+  for (const key of Object.keys(currentState)) delete currentState[key];
+  Object.assign(currentState, restoredState);
+  audit(currentState, "backup.restored", {
+    dashboards: Object.keys(currentState.dashboards ?? {}).length,
+    sources: Object.keys(currentState.connectorInstances ?? {}).length,
+    devices: Object.keys(currentState.devices ?? {}).length
+  });
+  saveState(currentState);
+  return previewBackupPayload(currentState);
 }
 
 function snapshotsForDefinition(state, definition) {
@@ -1356,6 +1483,31 @@ async function route(request, response, state) {
     const job = updateSourceSchedule(state, sourceId, body);
     saveState(state);
     return sendJson(response, 200, job);
+  }
+  if (request.method === "GET" && url.pathname === "/api/v1/backups") {
+    return sendJson(response, 200, { backups: listBackups(), retention: state.retention });
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/backups") {
+    const backup = createStateBackup(state);
+    saveState(state);
+    return sendJson(response, 201, { backup, backups: listBackups(), retention: state.retention });
+  }
+  if (request.method === "GET" && url.pathname.match(/^\/api\/v1\/backups\/[^/]+$/)) {
+    const fileName = url.pathname.split("/")[4];
+    const filePath = backupPath(fileName);
+    return send(response, 200, fs.readFileSync(filePath), {
+      "Content-Type": "application/json",
+      "Content-Disposition": `attachment; filename="${path.basename(filePath)}"`
+    });
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/backups/preview") {
+    const body = await readBody(request);
+    return sendJson(response, 200, previewBackupPayload(body.backup ?? body));
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/backups/restore") {
+    const body = await readBody(request);
+    const preview = restoreStateFromBackup(state, body.backup ?? body);
+    return sendJson(response, 200, preview);
   }
   if (request.method === "GET" && url.pathname === "/api/v1/dashboards") return sendJson(response, 200, Object.values(state.dashboards));
   if (request.method === "POST" && url.pathname === "/api/v1/dashboards") {

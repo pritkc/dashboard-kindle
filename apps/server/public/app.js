@@ -2,6 +2,8 @@ const state = {
   data: null,
   templates: [],
   refreshPresets: [],
+  backups: [],
+  backupRetention: null,
   dashboardId: "work",
   managedDeviceId: null,
   selectedWidgetId: null,
@@ -133,14 +135,17 @@ async function refresh() {
 }
 
 async function loadControlPlaneState() {
-  const [data, templates, refreshPresets] = await Promise.all([
+  const [data, templates, refreshPresets, backups] = await Promise.all([
     api("/api/v1/state"),
     api("/api/v1/dashboard-templates"),
-    api("/api/v1/refresh-presets")
+    api("/api/v1/refresh-presets"),
+    api("/api/v1/backups")
   ]);
   state.data = data;
   state.templates = templates;
   state.refreshPresets = refreshPresets;
+  state.backups = backups.backups ?? [];
+  state.backupRetention = backups.retention ?? data.retention ?? null;
 }
 
 async function reloadState(statusMessage) {
@@ -160,6 +165,7 @@ function render() {
   renderDashboardList();
   renderDashboardManagement();
   renderSetup();
+  renderBackupRestore();
   renderTemplates();
   renderSources();
   renderSourceWizard();
@@ -181,6 +187,37 @@ function renderSetup() {
     </div>
   `).join("");
   $("completeSetup").disabled = state.busy || !state.authenticated || setup.completed;
+}
+
+function renderBackupRestore() {
+  const backups = state.backups ?? [];
+  $("backupList").innerHTML = backups.length ? backups.slice(0, 5).map((backup) => `
+    <div class="item">
+      <strong>${escapeHtml(backup.fileName)}</strong>
+      <span>${escapeHtml(backup.createdAt)} · ${escapeHtml(formatBytes(backup.bytes))}</span>
+      <a href="${escapeHtml(backup.downloadUrl)}">Download</a>
+    </div>
+  `).join("") : `<div class="item"><span>No backups yet.</span></div>`;
+}
+
+function renderBackupPreview(preview) {
+  const warnings = preview.warnings?.length
+    ? preview.warnings.map((warning) => `<div class="layoutIssue">${escapeHtml(warning)}</div>`).join("")
+    : `<div class="layoutOk">Restore preview passed.</div>`;
+  $("backupPreview").innerHTML = `
+    <dl>
+      ${dl({
+        "Schema": preview.summary?.schemaVersion ?? "unknown",
+        "Dashboards": preview.summary?.dashboards ?? 0,
+        "Sources": preview.summary?.sources ?? 0,
+        "Devices": preview.summary?.devices ?? 0,
+        "Artifacts": preview.summary?.renderArtifacts ?? 0,
+        "Encrypted secrets": preview.secretCounts?.encrypted ?? 0,
+        "Plaintext secrets": preview.secretCounts?.plaintext ?? 0
+      })}
+    </dl>
+    <div class="layoutStatus">${warnings}</div>
+  `;
 }
 
 function renderDashboardList() {
@@ -508,6 +545,61 @@ async function completeSetup() {
   await withAction("Completing setup", async () => {
     await api("/api/v1/setup/complete", { method: "POST" });
     await reloadState("Setup marked complete.");
+  });
+}
+
+async function refreshBackupsAction() {
+  await withAction("Refreshing backups", async () => {
+    const backups = await api("/api/v1/backups");
+    state.backups = backups.backups ?? [];
+    state.backupRetention = backups.retention ?? state.backupRetention;
+    renderBackupRestore();
+    setStatus("Backup list refreshed.");
+  });
+}
+
+async function createBackupAction() {
+  await withAction("Creating backup", async () => {
+    const result = await api("/api/v1/backups", { method: "POST" });
+    state.backups = result.backups ?? [];
+    state.backupRetention = result.retention ?? state.backupRetention;
+    renderBackupRestore();
+    setStatus(`Backup created: ${result.backup.fileName}.`);
+  });
+}
+
+async function previewBackupAction() {
+  await withAction("Previewing restore", async () => {
+    const payload = parseJson($("restoreBackupJson").value, "Restore JSON");
+    const preview = await api("/api/v1/backups/preview", {
+      method: "POST",
+      body: JSON.stringify({ backup: payload })
+    });
+    renderBackupPreview(preview);
+    setStatus(preview.valid ? "Restore preview passed." : "Restore preview has warnings.", preview.valid ? "ok" : "error");
+  });
+}
+
+async function restoreBackupAction() {
+  await withAction("Restoring backup", async () => {
+    const payload = parseJson($("restoreBackupJson").value, "Restore JSON");
+    const preview = await api("/api/v1/backups/preview", {
+      method: "POST",
+      body: JSON.stringify({ backup: payload })
+    });
+    renderBackupPreview(preview);
+    if (!preview.valid) throw new Error("Backup preview did not pass validation.");
+    if (!window.confirm("Restore this backup? Current state will be replaced.")) return;
+    await api("/api/v1/backups/restore", {
+      method: "POST",
+      body: JSON.stringify({ backup: payload })
+    });
+    state.dashboardId = null;
+    state.managedDeviceId = null;
+    state.selectedWidgetId = null;
+    $("restoreBackupJson").value = "";
+    $("backupPreview").innerHTML = "";
+    await reloadState("Backup restored.");
   });
 }
 
@@ -869,6 +961,14 @@ function formatRelativeTime(isoTime) {
   return `in ${hours}h`;
 }
 
+function formatBytes(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value)) return "unknown size";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 async function publish() {
   await withAction("Publishing dashboard", async () => {
     const definition = parseDefinition();
@@ -1058,6 +1158,10 @@ function updateButtons() {
     "assign",
     "logout",
     "completeSetup",
+    "createBackup",
+    "refreshBackups",
+    "previewBackup",
+    "restoreBackup",
     "cloneTemplate",
     "renameDashboard",
     "duplicateDashboard",
@@ -1117,6 +1221,10 @@ $("logout").addEventListener("click", logout);
 $("refresh").addEventListener("click", refresh);
 $("bootstrap").addEventListener("click", bootstrap);
 $("completeSetup").addEventListener("click", completeSetup);
+$("createBackup").addEventListener("click", createBackupAction);
+$("refreshBackups").addEventListener("click", refreshBackupsAction);
+$("previewBackup").addEventListener("click", previewBackupAction);
+$("restoreBackup").addEventListener("click", restoreBackupAction);
 $("cloneTemplate").addEventListener("click", cloneTemplate);
 $("renameDashboard").addEventListener("click", renameDashboard);
 $("duplicateDashboard").addEventListener("click", duplicateDashboard);
