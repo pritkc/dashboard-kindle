@@ -14,12 +14,15 @@ Default local values:
 
 * Server: `http://127.0.0.1:8787`
 * Local development administrator token: `dev-admin-token`
+* Local development master key: `dev-only-change-me`
 * Data directory: `./data`
 * Fixtures: `data/fixtures`
 * Runtime state: `data/state.json`
 * Rendered images: `data/artifacts`
 
 Do not commit `.env`, `data/state.json`, backups, or generated artifacts. They can contain device token hashes, local paths, rendered private dashboard content, or other machine-specific data.
+
+Set `DASHBOARD_KINDLE_MASTER_KEY` to a long random value before storing real connector credentials. The server uses it to encrypt manifest-declared connector secret fields in `data/state.json`; changing or losing it prevents those saved secrets from being decrypted.
 
 Install renderer dependencies:
 

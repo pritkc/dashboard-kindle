@@ -31,10 +31,12 @@ const publicDir = repoPath("apps/server/public");
 const kindleClientDir = repoPath("clients/kindle-kual/dashboard-kindle");
 const loopbackHost = host === "127.0.0.1" || host === "localhost" || host === "::1";
 const adminToken = process.env.DASHBOARD_KINDLE_ADMIN_TOKEN ?? (loopbackHost ? "dev-admin-token" : "");
+const masterKey = process.env.DASHBOARD_KINDLE_MASTER_KEY ?? (loopbackHost ? "dev-only-change-me" : "");
 const adminCookieName = "dashboard_kindle_admin";
 const dashboardWidgetTypes = new Set(["clock", "metric", "progress", "list", "bars", "status", "alert", "text"]);
 const schedulerTickMs = Number(process.env.DASHBOARD_KINDLE_SCHEDULER_TICK_MS ?? 5000);
 const defaultSnapshotHistoryLimit = 25;
+const encryptedValueMarker = "dashboard-kindle.secret.v1";
 const refreshPresets = {
   battery_saver: {
     id: "battery_saver",
@@ -78,6 +80,7 @@ function loadEnvFile(filePath) {
 
 export function loadState() {
   const state = readJson(statePath, null) ?? defaultState();
+  decryptConnectorSecretsInPlace(state);
   state.pairingCodes ??= {};
   state.deviceCommands ??= {};
   state.setup ??= { completed: false, completedSteps: [] };
@@ -88,7 +91,93 @@ export function loadState() {
 }
 
 export function saveState(state) {
-  writeJson(statePath, state);
+  writeJson(statePath, stateForStorage(state));
+}
+
+export function stateForStorage(state) {
+  const copy = structuredClone(state);
+  encryptConnectorSecretsInPlace(copy);
+  return copy;
+}
+
+export function decryptConnectorSecretsInPlace(state) {
+  for (const instance of Object.values(state.connectorInstances ?? {})) {
+    const manifest = state.connectorManifests?.[instance.connectorId];
+    for (const secretPath of manifest?.secretFields ?? []) {
+      const value = readPath(instance.config, secretPath);
+      if (isEncryptedValue(value)) writePath(instance.config, secretPath, decryptSecretValue(value, instance.id, secretPath));
+    }
+  }
+}
+
+function encryptConnectorSecretsInPlace(state) {
+  if (!masterKey) return;
+  for (const instance of Object.values(state.connectorInstances ?? {})) {
+    const manifest = state.connectorManifests?.[instance.connectorId];
+    for (const secretPath of manifest?.secretFields ?? []) {
+      const value = readPath(instance.config, secretPath);
+      if (value === undefined || value === null || value === "" || isEncryptedValue(value)) continue;
+      writePath(instance.config, secretPath, encryptSecretValue(value, instance.id, secretPath));
+    }
+  }
+}
+
+function encryptSecretValue(value, sourceId, secretPath) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", secretKey(), iv);
+  cipher.setAAD(secretAad(sourceId, secretPath));
+  const plaintext = Buffer.from(JSON.stringify(value), "utf8");
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    __encrypted: encryptedValueMarker,
+    alg: "aes-256-gcm",
+    iv: iv.toString("base64"),
+    tag: tag.toString("base64"),
+    ciphertext: ciphertext.toString("base64")
+  };
+}
+
+function decryptSecretValue(value, sourceId, secretPath) {
+  if (!masterKey) throw new Error(`DASHBOARD_KINDLE_MASTER_KEY is required to decrypt ${sourceId}.${secretPath}`);
+  try {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", secretKey(), Buffer.from(value.iv, "base64"));
+    decipher.setAAD(secretAad(sourceId, secretPath));
+    decipher.setAuthTag(Buffer.from(value.tag, "base64"));
+    const plaintext = Buffer.concat([decipher.update(Buffer.from(value.ciphertext, "base64")), decipher.final()]).toString("utf8");
+    return JSON.parse(plaintext);
+  } catch (error) {
+    throw new Error(`Could not decrypt connector secret ${sourceId}.${secretPath}: ${redactError(error)}`);
+  }
+}
+
+function secretKey() {
+  return crypto.createHash("sha256").update(String(masterKey)).digest();
+}
+
+function secretAad(sourceId, secretPath) {
+  return Buffer.from(`dashboard-kindle:${sourceId}:${secretPath}`, "utf8");
+}
+
+function isEncryptedValue(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && value.__encrypted === encryptedValueMarker);
+}
+
+function readPath(value, dottedPath) {
+  return String(dottedPath).split(".").reduce((current, segment) => {
+    if (!current || typeof current !== "object") return undefined;
+    return current[segment];
+  }, value);
+}
+
+function writePath(value, dottedPath, nextValue) {
+  const segments = String(dottedPath).split(".");
+  let current = value;
+  for (const segment of segments.slice(0, -1)) {
+    if (!current[segment] || typeof current[segment] !== "object" || Array.isArray(current[segment])) current[segment] = {};
+    current = current[segment];
+  }
+  current[segments.at(-1)] = nextValue;
 }
 
 export async function bootstrapState(state = loadState()) {
@@ -1511,6 +1600,10 @@ export function startSourceScheduler(state, options = {}) {
 if (process.argv[1] === new URL(import.meta.url).pathname) {
   if (!adminToken) {
     console.error("DASHBOARD_KINDLE_ADMIN_TOKEN is required when binding outside loopback.");
+    process.exit(1);
+  }
+  if (!masterKey) {
+    console.error("DASHBOARD_KINDLE_MASTER_KEY is required when binding outside loopback.");
     process.exit(1);
   }
   const state = loadState();

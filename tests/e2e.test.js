@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import zlib from "node:zlib";
-import { bootstrapState, createAppServer, loadState } from "../apps/server/src/main.js";
+import { bootstrapState, createAppServer, decryptConnectorSecretsInPlace, loadState, stateForStorage } from "../apps/server/src/main.js";
 import { sha256 } from "../packages/domain/src/core.js";
 
 const adminHeaders = { "X-Admin-Token": "dev-admin-token" };
@@ -361,8 +361,9 @@ test("weather, calendar, GitHub, Home Assistant, and authenticated HTTP source s
   assert.ok(githubTest.fields.some((field) => field.path === "$.issues"));
   assert.equal(githubTest.snapshot.payload.repository.fullName, "openai/dashboard-kindle-example");
 
+  const githubId = `github-${suffix}`;
   const github = await postJson(`${base}/api/v1/sources`, {
-    id: `github-${suffix}`,
+    id: githubId,
     connectorId: "github.repo",
     name: "GitHub fixture with token",
     config: {
@@ -383,8 +384,9 @@ test("weather, calendar, GitHub, Home Assistant, and authenticated HTTP source s
   assert.ok(homeAssistantTest.fields.some((field) => field.path === "$.entities.0.state"));
   assert.equal(homeAssistantTest.snapshot.payload.entities[0].entityId, "sensor.living_room_temperature");
 
+  const homeAssistantId = `homeassistant-${suffix}`;
   const homeAssistant = await postJson(`${base}/api/v1/sources`, {
-    id: `homeassistant-${suffix}`,
+    id: homeAssistantId,
     connectorId: "homeassistant.states",
     name: "Home Assistant fixture with token",
     config: {
@@ -395,8 +397,9 @@ test("weather, calendar, GitHub, Home Assistant, and authenticated HTTP source s
   });
   assert.equal(homeAssistant.source.config.token, "[REDACTED]");
 
+  const httpId = `auth-http-${suffix}`;
   const http = await postJson(`${base}/api/v1/sources`, {
-    id: `auth-http-${suffix}`,
+    id: httpId,
     connectorId: "http.json",
     name: "Authenticated HTTP fixture",
     config: {
@@ -406,6 +409,20 @@ test("weather, calendar, GitHub, Home Assistant, and authenticated HTTP source s
     }
   });
   assert.equal(http.source.config.headers.authorization, "[REDACTED]");
+
+  const storedState = stateForStorage(state);
+  assert.equal(storedState.connectorInstances[githubId].config.token.__encrypted, "dashboard-kindle.secret.v1");
+  assert.equal(storedState.connectorInstances[homeAssistantId].config.token.__encrypted, "dashboard-kindle.secret.v1");
+  assert.equal(storedState.connectorInstances[httpId].config.headers.authorization.__encrypted, "dashboard-kindle.secret.v1");
+  assert.equal(JSON.stringify(storedState).includes("fake-token-for-redaction"), false);
+  assert.equal(JSON.stringify(storedState).includes("fake-home-assistant-token"), false);
+  assert.equal(JSON.stringify(storedState).includes("Bearer test-secret"), false);
+
+  const runtimeState = structuredClone(storedState);
+  decryptConnectorSecretsInPlace(runtimeState);
+  assert.equal(runtimeState.connectorInstances[githubId].config.token, "fake-token-for-redaction");
+  assert.equal(runtimeState.connectorInstances[homeAssistantId].config.token, "fake-home-assistant-token");
+  assert.equal(runtimeState.connectorInstances[httpId].config.headers.authorization, "Bearer test-secret");
 
   const templates = await getJson(`${base}/api/v1/dashboard-templates`);
   assert.ok(templates.some((template) => template.id === "weather-clock"));
