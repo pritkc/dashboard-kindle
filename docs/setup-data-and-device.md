@@ -276,6 +276,18 @@ To reuse an existing token:
 DASHBOARD_KINDLE_DEVICE_TOKEN=<device-token> pnpm simulator
 ```
 
+For custom clients or non-Kindle test panels, report explicit capabilities during enrollment:
+
+```bash
+DASHBOARD_KINDLE_PROFILE_ID=custom \
+DASHBOARD_KINDLE_DEVICE_WIDTH=1024 \
+DASHBOARD_KINDLE_DEVICE_HEIGHT=768 \
+DASHBOARD_KINDLE_ADMIN_TOKEN=<admin-token> \
+pnpm simulator
+```
+
+The simulator stores `etag.txt` and `latest.json` next to downloaded images. It sends `If-None-Match` on the next run, treats `304 Not Modified` as a successful no-redraw result, validates the final PNG chunk to catch truncated downloads, rejects wrong content types or hash mismatches, and retries temporary offline failures with bounded exponential backoff. Tune retries with `DASHBOARD_KINDLE_SIMULATOR_ATTEMPTS` and `DASHBOARD_KINDLE_SIMULATOR_BACKOFF_MS`.
+
 ## 11. Kindle Compatibility
 
 Dashboard Kindle’s physical client is a KUAL extension. A stock Kindle cannot run it until the device has a jailbreak and KUAL installed.
