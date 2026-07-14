@@ -16,6 +16,11 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y imagemagick librsvg2-bin
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm audit:deps
+      - run: pnpm scan:secrets
+      - run: pnpm license:check
       - run: pnpm test
+      - run: pnpm test:golden
       - run: pnpm build
       - run: docker build -t dashboard-kindle:ci .
+      - run: DASHBOARD_KINDLE_SMOKE_IMAGE=dashboard-kindle:ci pnpm container:smoke

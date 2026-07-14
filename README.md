@@ -40,6 +40,7 @@ Useful commands:
 pnpm test
 pnpm lint
 pnpm typecheck
+pnpm ci:local
 pnpm build
 pnpm backup
 pnpm agent:dev
