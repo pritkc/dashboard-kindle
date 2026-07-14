@@ -272,6 +272,45 @@ label {
   margin: 0;
 }
 
+.diagnosticsPanel {
+  display: grid;
+  gap: 8px;
+}
+
+.diagnosticsPanel dl {
+  grid-template-columns: minmax(0, 115px) minmax(0, 1fr);
+  margin: 0;
+  font-size: 13px;
+}
+
+.diagnosticStatus {
+  display: grid;
+  gap: 2px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+}
+
+.diagnosticStatus strong {
+  text-transform: uppercase;
+}
+
+.diagnosticStatus span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.diagnosticStatus.ok {
+  border-color: #9eb8ad;
+  background: #f2f7f4;
+}
+
+.diagnosticStatus.warn {
+  border-color: #d9b38c;
+  background: #fff7ef;
+}
+
 .fieldList {
   display: grid;
   gap: 8px;

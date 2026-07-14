@@ -221,9 +221,21 @@ test("source snapshot history keeps recent immutable snapshots with retention", 
   assert.deepEqual(publicState.snapshotHistory[sourceId].map((snapshot) => snapshot.payload.value), [3, 2]);
 
   const diagnostics = await getJson(`${base}/api/v1/diagnostics`);
+  assert.equal(["ok", "degraded"].includes(diagnostics.health), true);
+  assert.equal(diagnostics.counts.sources >= 1, true);
+  assert.equal(diagnostics.database.kind, "json");
+  assert.equal(diagnostics.renderer.backend, "imagemagick");
   assert.equal(diagnostics.snapshotHistory[sourceId].length, 2);
   assert.equal(diagnostics.snapshotHistory[sourceId][0].payload, undefined);
   assert.equal(diagnostics.snapshotHistory[sourceId][0].payloadHash, publicState.snapshotHistory[sourceId][0].payloadHash);
+  assert.equal(JSON.stringify(diagnostics).includes(`"payload":{"value"`), false);
+
+  const exported = await fetch(`${base}/api/v1/diagnostics/export`, { headers: adminHeaders });
+  assert.equal(exported.status, 200);
+  assert.match(exported.headers.get("content-disposition"), /dashboard-kindle-diagnostics-.+\.json/);
+  const exportedPayload = JSON.parse(await exported.text());
+  assert.equal(exportedPayload.snapshotHistory[sourceId][0].payload, undefined);
+  assert.deepEqual(exportedPayload.counts, diagnostics.counts);
 });
 
 test("device management supports policy presets, forced refresh, token rotation, and revocation", async (t) => {
@@ -501,8 +513,8 @@ test("backup API supports scheduled backup creation", async (t) => {
   t.after(() => server.close());
   const base = `http://127.0.0.1:${server.address().port}`;
 
-  const initial = await getJson(`${base}/api/v1/backups`);
-  assert.equal(initial.schedule.enabled, false);
+  const initial = await patchJson(`${base}/api/v1/backups/schedule`, { enabled: false });
+  assert.equal(initial.enabled, false);
 
   const dueAt = new Date(Date.now() - 1000).toISOString();
   const schedule = await patchJson(`${base}/api/v1/backups/schedule`, {

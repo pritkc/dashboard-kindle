@@ -23,6 +23,10 @@ pnpm docker:up
 
 Persist `/data`. Put the service behind a reverse proxy with HTTPS before exposing it outside a trusted LAN. Device tokens should be rotated if a Kindle is lost or logs are shared.
 
+## Diagnostics
+
+Use the control-plane **Diagnostics** panel to check server health, source failures, scheduler status, device check-ins, storage size, and render artifact counts. **Export JSON** downloads the same redacted diagnostics payload from `/api/v1/diagnostics/export`; it omits raw snapshot payloads and device token hashes.
+
 ## macOS Local Agent
 
 The local agent is optional for fixture-backed setup, but it provides the installation path for Mac-local connectors.

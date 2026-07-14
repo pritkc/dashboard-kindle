@@ -795,6 +795,66 @@ function backupSecretCounts(restoredState) {
   return { encrypted, plaintext };
 }
 
+function diagnosticsPayload(state) {
+  const artifacts = Object.values(state.renderArtifacts ?? {});
+  const devices = Object.values(state.devices ?? {}).map(withoutToken);
+  const checkins = state.deviceCheckins ?? {};
+  const sourceHealth = state.sourceHealth ?? {};
+  const failedSources = Object.values(sourceHealth).filter((health) => health?.state === "error");
+  const recentAuditFailures = (state.auditEvents ?? [])
+    .filter((event) => /\.failed$|failed|error/i.test(event.action))
+    .slice(-10);
+  return {
+    health: failedSources.length ? "degraded" : "ok",
+    generatedAt: nowIso(),
+    database: {
+      kind: "json",
+      persistent: fs.existsSync(statePath),
+      path: path.relative(repoPath(), statePath),
+      bytes: fs.existsSync(statePath) ? fs.statSync(statePath).size : 0
+    },
+    renderer: {
+      backend: "imagemagick",
+      artifactCount: artifacts.length,
+      artifactBytes: artifacts.reduce((total, artifact) => total + fileSize(artifact.imagePath) + fileSize(artifact.svgPath) + fileSize(artifact.pgmPath), 0)
+    },
+    counts: {
+      dashboards: Object.keys(state.dashboards ?? {}).length,
+      sources: Object.keys(state.connectorInstances ?? {}).length,
+      devices: devices.length,
+      renderArtifacts: artifacts.length,
+      auditEvents: (state.auditEvents ?? []).length,
+      backups: listBackups().length
+    },
+    sources: sourceHealth,
+    snapshotHistory: publicSnapshotHistory(state, { includePayload: false }),
+    devices,
+    deviceCommands: publicDeviceCommands(state),
+    checkins,
+    artifacts: artifacts.map((artifact) => ({
+      ...artifact,
+      imagePath: path.relative(repoPath(), artifact.imagePath),
+      svgPath: path.relative(repoPath(), artifact.svgPath),
+      pgmPath: path.relative(repoPath(), artifact.pgmPath)
+    })),
+    scheduler: schedulerStatus(state),
+    backupSchedule: publicBackupJob(ensureBackupJob(state)),
+    recentErrors: {
+      sources: failedSources.map((health) => ({
+        sourceId: health.sourceId,
+        lastErrorAt: health.lastErrorAt,
+        error: health.error
+      })),
+      auditEvents: recentAuditFailures
+    },
+    auditEvents: (state.auditEvents ?? []).slice(-50)
+  };
+}
+
+function fileSize(filePath) {
+  return filePath && fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
+}
+
 function restoreStateFromBackup(currentState, payload) {
   const restoredState = structuredClone(backupStateFromPayload(payload));
   const preview = previewBackupPayload(payload);
@@ -1808,17 +1868,11 @@ async function route(request, response, state) {
     return sendJson(response, 202, { snapshotId: snapshot.id, payloadHash: snapshot.payloadHash });
   }
   if (request.method === "GET" && url.pathname === "/api/v1/diagnostics") {
-    return sendJson(response, 200, {
-      health: "ok",
-      sources: state.sourceHealth,
-      snapshotHistory: publicSnapshotHistory(state, { includePayload: false }),
-      devices: Object.values(state.devices).map(withoutToken),
-      deviceCommands: publicDeviceCommands(state),
-      checkins: state.deviceCheckins,
-      artifacts: Object.values(state.renderArtifacts).map((artifact) => ({ ...artifact, imagePath: path.relative(repoPath(), artifact.imagePath) })),
-      scheduler: schedulerStatus(state),
-      backupSchedule: publicBackupJob(ensureBackupJob(state)),
-      auditEvents: state.auditEvents.slice(-50)
+    return sendJson(response, 200, diagnosticsPayload(state));
+  }
+  if (request.method === "GET" && url.pathname === "/api/v1/diagnostics/export") {
+    return sendJson(response, 200, diagnosticsPayload(state), {
+      "Content-Disposition": `attachment; filename="dashboard-kindle-diagnostics-${nowIso().replace(/[:.]/g, "-")}.json"`
     });
   }
   throw httpError(404, "Not found");

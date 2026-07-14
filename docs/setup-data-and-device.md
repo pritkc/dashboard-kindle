@@ -83,6 +83,8 @@ The UI opens with a setup checklist. Work through it in this order:
 
 The setup status is resumable because the server derives each step from persisted sources, dashboards, devices, assignments, and render artifacts.
 
+The **Diagnostics** panel shows server health, source/device counts, storage use, due jobs, failed sources, and backup schedule state. Use **Export JSON** when you need a redacted support bundle; snapshot history in this export includes hashes and timing metadata but not raw snapshot payloads.
+
 ## 4. Add or Test Data Sources
 
 The fixture setup starts with working CodexBar, ActivityWatch, HTTP JSON, and manual sources. To add a new source without editing code:

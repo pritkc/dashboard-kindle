@@ -5,6 +5,7 @@ const state = {
   backups: [],
   backupRetention: null,
   backupSchedule: null,
+  diagnostics: null,
   dashboardId: "work",
   managedDeviceId: null,
   selectedWidgetId: null,
@@ -136,11 +137,12 @@ async function refresh() {
 }
 
 async function loadControlPlaneState() {
-  const [data, templates, refreshPresets, backups] = await Promise.all([
+  const [data, templates, refreshPresets, backups, diagnostics] = await Promise.all([
     api("/api/v1/state"),
     api("/api/v1/dashboard-templates"),
     api("/api/v1/refresh-presets"),
-    api("/api/v1/backups")
+    api("/api/v1/backups"),
+    api("/api/v1/diagnostics")
   ]);
   state.data = data;
   state.templates = templates;
@@ -148,6 +150,7 @@ async function loadControlPlaneState() {
   state.backups = backups.backups ?? [];
   state.backupRetention = backups.retention ?? data.retention ?? null;
   state.backupSchedule = backups.schedule ?? data.backupSchedule ?? data.scheduler?.backup ?? null;
+  state.diagnostics = diagnostics;
 }
 
 async function reloadState(statusMessage) {
@@ -167,6 +170,7 @@ function render() {
   renderDashboardList();
   renderDashboardManagement();
   renderSetup();
+  renderDiagnostics();
   renderBackupRestore();
   renderTemplates();
   renderSources();
@@ -189,6 +193,38 @@ function renderSetup() {
     </div>
   `).join("");
   $("completeSetup").disabled = state.busy || !state.authenticated || setup.completed;
+}
+
+function renderDiagnostics() {
+  const diagnostics = state.diagnostics;
+  if (!diagnostics) {
+    $("diagnosticsSummary").innerHTML = `<div class="item"><span>No diagnostics loaded.</span></div>`;
+    return;
+  }
+  const failedSources = diagnostics.recentErrors?.sources?.length ?? 0;
+  const sourceJobs = diagnostics.scheduler?.jobs ?? [];
+  const dueSources = sourceJobs.filter((job) => job.due).length;
+  const backup = diagnostics.backupSchedule;
+  $("diagnosticsSummary").innerHTML = `
+    <div class="diagnosticStatus ${diagnostics.health === "ok" ? "ok" : "warn"}">
+      <strong>${escapeHtml(diagnostics.health)}</strong>
+      <span>${escapeHtml(`generated ${formatRelativeTime(diagnostics.generatedAt)}`)}</span>
+    </div>
+    <dl>
+      ${dl({
+        "Sources": diagnostics.counts?.sources ?? 0,
+        "Dashboards": diagnostics.counts?.dashboards ?? 0,
+        "Devices": diagnostics.counts?.devices ?? 0,
+        "Artifacts": diagnostics.counts?.renderArtifacts ?? 0,
+        "Artifact storage": formatBytes(diagnostics.renderer?.artifactBytes ?? 0),
+        "State storage": formatBytes(diagnostics.database?.bytes ?? 0),
+        "Due source jobs": dueSources,
+        "Failed sources": failedSources,
+        "Backup": backup?.enabled ? `next ${formatRelativeTime(backup.nextRunAt)}` : "paused"
+      })}
+    </dl>
+    ${failedSources ? `<div class="layoutIssue">${escapeHtml(`${failedSources} source${failedSources === 1 ? "" : "s"} reporting errors`)}</div>` : `<div class="layoutOk">No source errors reported.</div>`}
+  `;
 }
 
 function renderBackupRestore() {
@@ -557,6 +593,32 @@ async function completeSetup() {
   await withAction("Completing setup", async () => {
     await api("/api/v1/setup/complete", { method: "POST" });
     await reloadState("Setup marked complete.");
+  });
+}
+
+async function refreshDiagnosticsAction() {
+  await withAction("Refreshing diagnostics", async () => {
+    state.diagnostics = await api("/api/v1/diagnostics");
+    renderDiagnostics();
+    setStatus(`Diagnostics refreshed: ${state.diagnostics.health}.`, state.diagnostics.health === "ok" ? "ok" : "error");
+  });
+}
+
+async function exportDiagnosticsAction() {
+  await withAction("Exporting diagnostics", async () => {
+    const response = await fetch("/api/v1/diagnostics/export", { credentials: "same-origin" });
+    if (!response.ok) throw new Error(parseApiError(await response.text(), response.status));
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const disposition = response.headers.get("content-disposition") ?? "";
+    link.href = url;
+    link.download = disposition.match(/filename="([^"]+)"/)?.[1] ?? "dashboard-kindle-diagnostics.json";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setStatus("Diagnostics JSON exported.");
   });
 }
 
@@ -1201,6 +1263,8 @@ function updateButtons() {
     "assign",
     "logout",
     "completeSetup",
+    "refreshDiagnostics",
+    "exportDiagnostics",
     "createBackup",
     "refreshBackups",
     "saveBackupSchedule",
@@ -1266,6 +1330,8 @@ $("logout").addEventListener("click", logout);
 $("refresh").addEventListener("click", refresh);
 $("bootstrap").addEventListener("click", bootstrap);
 $("completeSetup").addEventListener("click", completeSetup);
+$("refreshDiagnostics").addEventListener("click", refreshDiagnosticsAction);
+$("exportDiagnostics").addEventListener("click", exportDiagnosticsAction);
 $("createBackup").addEventListener("click", createBackupAction);
 $("refreshBackups").addEventListener("click", refreshBackupsAction);
 $("saveBackupSchedule").addEventListener("click", saveBackupScheduleAction);
