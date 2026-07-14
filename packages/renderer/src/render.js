@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { hashPayload, repoPath, selectPath, sha256 } from "../../domain/src/core.js";
 import { resolveProfile } from "../../device-profiles/src/profiles.js";
 
-export const RENDERER_VERSION = "dashboard-kindle-renderer-0.1.3";
+export const RENDERER_VERSION = "dashboard-kindle-renderer-0.1.4";
 
 export function renderFingerprint(revision, snapshots, profile) {
   const snapshotHashes = Object.fromEntries(Object.entries(snapshots).map(([id, snapshot]) => [id, snapshot?.payloadHash ?? "missing"]));
@@ -15,8 +15,17 @@ export function renderFingerprint(revision, snapshots, profile) {
     profileHash: profile.hash,
     rendererVersion: RENDERER_VERSION,
     fontVersion: "system-ui-v1",
-    timeBucket: hasClockWidget ? new Date().toISOString().slice(0, 16) : null
+    timeBucket: hasClockWidget ? currentRenderDate().toISOString().slice(0, 16) : null
   });
+}
+
+function currentRenderDate() {
+  const override = process.env.DASHBOARD_KINDLE_RENDER_NOW;
+  if (override) {
+    const parsed = new Date(override);
+    if (Number.isFinite(parsed.getTime())) return parsed;
+  }
+  return new Date();
 }
 
 export function renderDashboardSvg(definition, snapshots, requestedProfile = {}) {
@@ -85,7 +94,7 @@ function renderWidgetContent(widget, data, box, palette) {
 }
 
 function renderClock({ x, y, w, h }) {
-  const date = new Date();
+  const date = currentRenderDate();
   const time = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" }).format(date);
   const day = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }).format(date);
   return `<text x="${x + w / 2}" y="${y + h / 2 + 16}" text-anchor="middle" class="value" font-size="${Math.min(64, h / 2)}">${escapeXml(time)}</text>
