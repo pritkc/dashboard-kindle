@@ -28,13 +28,12 @@ Set `DASHBOARD_KINDLE_MASTER_KEY` to a long random value before storing real con
 
 Retention defaults can be overridden with `DASHBOARD_KINDLE_BACKUP_LIMIT`, `DASHBOARD_KINDLE_RENDER_ARTIFACT_LIMIT_PER_DASHBOARD`, and `DASHBOARD_KINDLE_SNAPSHOT_HISTORY_LIMIT`.
 
-Install renderer dependencies:
+Install renderer dependencies from the README quick start if you have not already:
 
 ```bash
-brew install imagemagick librsvg
+brew install imagemagick librsvg   # Linux: apt install imagemagick librsvg2-bin
+pnpm check:renderer
 ```
-
-`librsvg` provides `rsvg-convert`, which ImageMagick uses to render SVG dashboards into PNG artifacts.
 
 ## 2. Seed Fixture Data
 

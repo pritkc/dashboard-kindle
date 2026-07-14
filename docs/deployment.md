@@ -3,8 +3,9 @@
 Start locally:
 
 ```bash
-pnpm seed
-pnpm dev
+brew install imagemagick librsvg   # Linux: apt install imagemagick librsvg2-bin
+pnpm check:renderer
+pnpm seed && pnpm dev
 ```
 
 Start with Docker Compose:

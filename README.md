@@ -4,35 +4,19 @@ Dashboard Kindle is a self-hosted e-ink dashboard control plane and thin-device 
 
 ## Quick Start
 
-Prerequisites:
+Requires Node 22+, pnpm 10, and renderer tools (`imagemagick`, `librsvg`).
 
 ```bash
-node --version   # v22 or newer; v26 is used in CI
-pnpm --version   # v10
-magick -version || convert -version
-rsvg-convert --version
+brew install imagemagick librsvg   # Linux: apt install imagemagick librsvg2-bin
+pnpm check:renderer
+pnpm seed && pnpm dev
 ```
 
-On macOS, install renderer dependencies with:
+Open `http://127.0.0.1:8787` and unlock with `dev-admin-token`.
 
-```bash
-brew install imagemagick librsvg
-```
+Optional: `cp .env.example .env` to override defaults. Set a strong `DASHBOARD_KINDLE_ADMIN_TOKEN` before binding to a LAN address or using Docker.
 
-Optional local configuration is loaded from `.env`:
-
-```bash
-cp .env.example .env
-```
-
-For loopback development, the default administrator token is `dev-admin-token`. Set a strong `DASHBOARD_KINDLE_ADMIN_TOKEN` before binding to a LAN address or using Docker.
-
-```bash
-pnpm seed
-pnpm dev
-```
-
-Open `http://127.0.0.1:8787` and unlock with the administrator token.
+`pnpm seed` checks renderer tools automatically. `rsvg-convert` renders dashboard SVG text; ImageMagick applies grayscale, palette, and PGM conversion.
 
 Useful commands:
 

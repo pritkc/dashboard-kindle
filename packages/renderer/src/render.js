@@ -358,30 +358,57 @@ export function writeRenderArtifact({ artifactId, definition, revision, snapshot
   };
 }
 
+function resolveMagickCommand() {
+  if (fs.existsSync("/opt/homebrew/bin/magick")) return "/opt/homebrew/bin/magick";
+  return "magick";
+}
+
+function resolveRsvgCommand() {
+  if (fs.existsSync("/opt/homebrew/bin/rsvg-convert")) return "/opt/homebrew/bin/rsvg-convert";
+  return "rsvg-convert";
+}
+
 function convertSvgToPng(svgPath, pngPath, profile) {
-  const command = fs.existsSync("/opt/homebrew/bin/magick") ? "/opt/homebrew/bin/magick" : "convert";
-  const args = [
-    svgPath,
-    "-background",
-    "white",
-    "-flatten",
-    "-resize",
-    `${profile.width}x${profile.height}!`,
-    "-colorspace",
-    "Gray"
-  ];
-  if (profile.palette === "monochrome") args.push("-threshold", "55%");
-  if (profile.palette === "grayscale4") args.push("-posterize", "4");
-  if (profile.palette === "grayscale16") args.push("-posterize", "16");
-  args.push(pngPath);
-  const result = spawnSync(command, args, { encoding: "utf8" });
-  if (result.status !== 0) {
-    throw new Error(`ImageMagick render failed: ${result.stderr || result.stdout}`);
+  const rsvgTempPath = `${pngPath}.rsvg.tmp`;
+  const rsvgResult = spawnSync(resolveRsvgCommand(), [
+    "--background-color=white",
+    "-w",
+    String(profile.width),
+    "-h",
+    String(profile.height),
+    "-o",
+    rsvgTempPath,
+    svgPath
+  ], { encoding: "utf8" });
+  if (rsvgResult.status !== 0) {
+    throw new Error(`rsvg-convert failed: ${rsvgResult.stderr || rsvgResult.stdout || "install librsvg (brew install librsvg or apt install librsvg2-bin)"}`);
+  }
+  try {
+    const args = [
+      rsvgTempPath,
+      "-background",
+      "white",
+      "-flatten",
+      "-resize",
+      `${profile.width}x${profile.height}!`,
+      "-colorspace",
+      "Gray"
+    ];
+    if (profile.palette === "monochrome") args.push("-threshold", "55%");
+    if (profile.palette === "grayscale4") args.push("-posterize", "4");
+    if (profile.palette === "grayscale16") args.push("-posterize", "16");
+    args.push(pngPath);
+    const result = spawnSync(resolveMagickCommand(), args, { encoding: "utf8" });
+    if (result.status !== 0) {
+      throw new Error(`ImageMagick post-process failed: ${result.stderr || result.stdout}`);
+    }
+  } finally {
+    if (fs.existsSync(rsvgTempPath)) fs.rmSync(rsvgTempPath, { force: true });
   }
 }
 
 function convertPngToPgm(pngPath, pgmPath) {
-  const command = fs.existsSync("/opt/homebrew/bin/magick") ? "/opt/homebrew/bin/magick" : "convert";
+  const command = resolveMagickCommand();
   const result = spawnSync(command, [pngPath, "-compress", "none", pgmPath], { encoding: "utf8" });
   if (result.status !== 0) {
     throw new Error(`PGM conversion failed: ${result.stderr || result.stdout}`);
