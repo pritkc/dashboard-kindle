@@ -51,6 +51,30 @@ const profiles = {
   }
 };
 
+const compatibilityMatrix = {
+  kindle_basic_600x800: {
+    status: "Supported profile, hardware validation still required",
+    tested: "Simulator and generated KUAL package tested; physical Kindle validation pending",
+    requires: ["Jailbreak", "KUAL extension launcher", "USB copy to /mnt/us/extensions"],
+    sleepWake: "No scheduled wake support in this build. Keep the device awake or expect updates only while it is active.",
+    warning: "A stock Kindle cannot install this bundle until jailbreak and KUAL are already installed."
+  },
+  kindle_pw_758x1024: {
+    status: "Supported profile, hardware validation still required",
+    tested: "Simulator and generated KUAL package tested; physical Paperwhite validation pending",
+    requires: ["Jailbreak", "KUAL extension launcher", "USB copy to /mnt/us/extensions"],
+    sleepWake: "Partial refresh is supported by the profile, but sleep/wake behavior still depends on firmware and display tools.",
+    warning: "Confirm jailbreak and KUAL compatibility for the exact Paperwhite model and firmware before using this path."
+  },
+  trmnl_800x480: {
+    status: "Supported generic BYOD profile",
+    tested: "Simulator/BYOD path tested; no Kindle jailbreak required for non-Kindle clients",
+    requires: ["Client that can fetch the device display endpoint", "Network access to this server"],
+    sleepWake: "Wake behavior is controlled by the BYOD client, not by the Kindle KUAL extension.",
+    warning: "Use this for simulator or custom e-ink clients, not for stock Kindle installation."
+  }
+};
+
 const $ = (id) => document.getElementById(id);
 
 async function api(path, options = {}) {
@@ -301,6 +325,33 @@ function applySelectedPresetToForm() {
 
 function renderPairingDefaults() {
   if (!$("pairServerUrl").value) $("pairServerUrl").value = window.location.origin;
+  renderPairingCompatibility();
+}
+
+function renderPairingCompatibility() {
+  const profileId = $("pairDeviceProfile").value;
+  const profile = profiles[profileId];
+  const compatibility = compatibilityMatrix[profileId];
+  if (!profile || !compatibility) {
+    $("pairCompatibility").innerHTML = `<div class="compatibilityWarn">Choose a known profile or configure a custom client manually.</div>`;
+    return;
+  }
+  $("pairCompatibility").innerHTML = `
+    <div class="compatibilityHeader">
+      <strong>${escapeHtml(profile.name)}</strong>
+      <span>${escapeHtml(`${profile.width}x${profile.height} · ${profile.palette}`)}</span>
+    </div>
+    <div class="compatibilityStatus">${escapeHtml(compatibility.status)}</div>
+    <div class="compatibilityWarn">${escapeHtml(compatibility.warning)}</div>
+    <dl>
+      <dt>Requires</dt>
+      <dd>${compatibility.requires.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</dd>
+      <dt>Sleep/wake</dt>
+      <dd>${escapeHtml(compatibility.sleepWake)}</dd>
+      <dt>Tested status</dt>
+      <dd>${escapeHtml(compatibility.tested)}</dd>
+    </dl>
+  `;
 }
 
 function renderSelects() {
@@ -992,6 +1043,7 @@ $("managedDeviceSelect").addEventListener("change", (event) => {
   renderDeviceManagement();
 });
 $("devicePreset").addEventListener("change", applySelectedPresetToForm);
+$("pairDeviceProfile").addEventListener("change", renderPairingCompatibility);
 $("dashboardSelect").addEventListener("change", (event) => {
   state.dashboardId = event.target.value;
   render();

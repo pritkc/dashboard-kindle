@@ -131,9 +131,10 @@ Use **Pair Device** in the sidebar:
 
 1. Enter a device name.
 2. Select the closest screen profile.
-3. Set `Server URL` to the LAN address reachable from the device, for example `http://192.168.1.20:8787`.
-4. Click **Create pairing bundle**.
-5. Download the generated `dashboard-kindle-<code>.tgz`.
+3. Review the compatibility panel. Kindle profiles require jailbreak and KUAL before the generated bundle can run; simulator/BYOD profiles do not.
+4. Set `Server URL` to the LAN address reachable from the device, for example `http://192.168.1.20:8787`.
+5. Click **Create pairing bundle**.
+6. Download the generated `dashboard-kindle-<code>.tgz`.
 
 The bundle contains the KUAL extension plus a prefilled `state/config` file with `SERVER_URL`, `DEVICE_TOKEN`, and `POLL_SECONDS`. The pairing code expires after 15 minutes. The device token is stored hashed on the server and is not exposed through `/api/v1/state`.
 
@@ -249,6 +250,7 @@ DASHBOARD_KINDLE_DEVICE_TOKEN=<device-token> pnpm simulator
 ## 10. Kindle Compatibility
 
 Dashboard Kindle’s physical client is a KUAL extension. A stock Kindle cannot run it until the device has a jailbreak and KUAL installed.
+The **Pair Device** panel shows these same warnings before it creates a bundle.
 
 | Device class | Status | Notes |
 | --- | --- | --- |
