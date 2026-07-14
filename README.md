@@ -43,6 +43,7 @@ pnpm typecheck
 pnpm build
 pnpm backup
 pnpm agent:dev
+pnpm agent:install:macos
 pnpm simulator
 pnpm docker:up
 ```
@@ -50,6 +51,8 @@ pnpm docker:up
 The development UI starts with fixture-backed CodexBar, ActivityWatch, HTTP JSON, and manual sources. No external credentials are required.
 
 For guided setup, data-source configuration, device pairing, simulator usage, and Kindle KUAL installation, see [docs/setup-data-and-device.md](docs/setup-data-and-device.md).
+
+For Mac-local CodexBar and ActivityWatch fixture collection, see [docs/agent.md](docs/agent.md). `pnpm agent:install:macos` installs a user LaunchAgent and `pnpm agent:uninstall:macos` removes it.
 
 ## Device Flow
 

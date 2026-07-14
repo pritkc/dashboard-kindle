@@ -96,6 +96,8 @@ The fixture setup starts with working CodexBar, ActivityWatch, HTTP JSON, and ma
 
 Saved sources are collected by a durable scheduler. The source list shows the next scheduled collection and backoff state. **Run due now** executes only jobs whose scheduled time has arrived; **Collect sources** still performs an immediate manual retry of every configured source.
 
+For Mac-local CodexBar and ActivityWatch fixture status, run the local agent in the foreground with `pnpm agent:dev`. To install it as a user LaunchAgent, run `pnpm agent:install:macos`; remove the service with `pnpm agent:uninstall:macos`. See [agent.md](agent.md) before enabling production local collection or command/file allowlists.
+
 Recommended first sources:
 
 * **Static manual data**: use `{ "payload": { "metric": 73, "alert": "All systems nominal" } }`.

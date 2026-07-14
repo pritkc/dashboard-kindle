@@ -8,6 +8,9 @@ const required = [
   "clients/kindle-kual/dashboard-kindle/menu.json",
   "clients/kindle-kual/dashboard-kindle/bin/dashboard-kindle.sh",
   "clients/simulator/src/main.js",
+  "apps/agent/src/main.js",
+  "scripts/agent-install-macos.sh",
+  "scripts/agent-uninstall-macos.sh",
   "Dockerfile",
   "docker-compose.yml",
   ".github/workflows/ci.yml"
