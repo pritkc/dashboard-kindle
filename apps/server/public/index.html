@@ -39,6 +39,19 @@
             <button id="createBackup">Create backup</button>
             <button id="refreshBackups" class="secondary">Refresh</button>
           </div>
+          <div id="backupScheduleStatus" class="item"></div>
+          <label class="checkboxLabel">
+            <input id="backupScheduleEnabled" type="checkbox">
+            Scheduled backup
+          </label>
+          <label>
+            Back up every (hours)
+            <input id="backupScheduleHours" type="number" min="1" step="1">
+          </label>
+          <div class="buttonRow">
+            <button id="saveBackupSchedule" class="secondary">Save schedule</button>
+            <button id="runDueBackups" class="secondary">Run due</button>
+          </div>
           <label>
             Restore JSON
             <textarea id="restoreBackupJson" class="smallTextarea"></textarea>

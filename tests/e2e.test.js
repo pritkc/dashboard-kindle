@@ -494,6 +494,34 @@ test("backup API supports download, preview, and restore", async (t) => {
   assert.equal(dashboards.some((dashboard) => dashboard.id === "work"), true);
 });
 
+test("backup API supports scheduled backup creation", async (t) => {
+  const state = await bootstrapState(loadState());
+  const server = createAppServer(state);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const initial = await getJson(`${base}/api/v1/backups`);
+  assert.equal(initial.schedule.enabled, false);
+
+  const dueAt = new Date(Date.now() - 1000).toISOString();
+  const schedule = await patchJson(`${base}/api/v1/backups/schedule`, {
+    enabled: true,
+    intervalSeconds: 3600,
+    runAt: dueAt
+  });
+  assert.equal(schedule.enabled, true);
+  assert.equal(schedule.intervalSeconds, 3600);
+  assert.equal(schedule.due, true);
+
+  const due = await postJson(`${base}/api/v1/backups/run-due`, {});
+  assert.equal(due.ran, 1);
+  assert.match(due.backup.fileName, /^dashboard-kindle-.+\.json$/);
+  assert.equal(due.backups.some((backup) => backup.fileName === due.backup.fileName), true);
+  assert.equal(due.schedule.due, false);
+  assert.ok(Date.parse(due.schedule.nextRunAt) > Date.now());
+});
+
 test("render artifact retention removes old files while preserving current device artifacts", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dashboard-kindle-artifacts-"));
   const state = loadState();

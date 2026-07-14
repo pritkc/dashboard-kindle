@@ -4,6 +4,7 @@ const state = {
   refreshPresets: [],
   backups: [],
   backupRetention: null,
+  backupSchedule: null,
   dashboardId: "work",
   managedDeviceId: null,
   selectedWidgetId: null,
@@ -146,6 +147,7 @@ async function loadControlPlaneState() {
   state.refreshPresets = refreshPresets;
   state.backups = backups.backups ?? [];
   state.backupRetention = backups.retention ?? data.retention ?? null;
+  state.backupSchedule = backups.schedule ?? data.backupSchedule ?? data.scheduler?.backup ?? null;
 }
 
 async function reloadState(statusMessage) {
@@ -191,6 +193,7 @@ function renderSetup() {
 
 function renderBackupRestore() {
   const backups = state.backups ?? [];
+  const schedule = state.backupSchedule;
   $("backupList").innerHTML = backups.length ? backups.slice(0, 5).map((backup) => `
     <div class="item">
       <strong>${escapeHtml(backup.fileName)}</strong>
@@ -198,6 +201,15 @@ function renderBackupRestore() {
       <a href="${escapeHtml(backup.downloadUrl)}">Download</a>
     </div>
   `).join("") : `<div class="item"><span>No backups yet.</span></div>`;
+  $("backupScheduleEnabled").checked = Boolean(schedule?.enabled);
+  $("backupScheduleHours").value = schedule?.intervalSeconds ? String(Math.round(schedule.intervalSeconds / 3600)) : "24";
+  const scheduleState = schedule?.enabled ? `next ${formatRelativeTime(schedule.nextRunAt)}` : "paused";
+  const lastState = schedule?.lastSuccessAt ? `last ${formatRelativeTime(schedule.lastSuccessAt)}` : "never run";
+  const errorState = schedule?.lastError ? ` · error: ${schedule.lastError}` : "";
+  $("backupScheduleStatus").innerHTML = `
+    <strong>${escapeHtml(scheduleState)}</strong>
+    <span>${escapeHtml(`${lastState}${errorState}`)}</span>
+  `;
 }
 
 function renderBackupPreview(preview) {
@@ -553,6 +565,7 @@ async function refreshBackupsAction() {
     const backups = await api("/api/v1/backups");
     state.backups = backups.backups ?? [];
     state.backupRetention = backups.retention ?? state.backupRetention;
+    state.backupSchedule = backups.schedule ?? state.backupSchedule;
     renderBackupRestore();
     setStatus("Backup list refreshed.");
   });
@@ -563,8 +576,38 @@ async function createBackupAction() {
     const result = await api("/api/v1/backups", { method: "POST" });
     state.backups = result.backups ?? [];
     state.backupRetention = result.retention ?? state.backupRetention;
+    state.backupSchedule = result.schedule ?? state.backupSchedule;
     renderBackupRestore();
     setStatus(`Backup created: ${result.backup.fileName}.`);
+  });
+}
+
+async function saveBackupScheduleAction() {
+  await withAction("Saving backup schedule", async () => {
+    const hours = Number($("backupScheduleHours").value);
+    if (!Number.isFinite(hours) || hours < 1) throw new Error("Backup interval must be at least 1 hour.");
+    const schedule = await api("/api/v1/backups/schedule", {
+      method: "PATCH",
+      body: JSON.stringify({
+        enabled: $("backupScheduleEnabled").checked,
+        intervalSeconds: Math.round(hours * 3600)
+      })
+    });
+    state.backupSchedule = schedule;
+    renderBackupRestore();
+    setStatus(schedule.enabled ? `Backup schedule saved; next run ${formatRelativeTime(schedule.nextRunAt)}.` : "Backup schedule paused.");
+  });
+}
+
+async function runDueBackupsAction() {
+  await withAction("Running due backup schedule", async () => {
+    const result = await api("/api/v1/backups/run-due", { method: "POST" });
+    state.backups = result.backups ?? state.backups;
+    state.backupRetention = result.retention ?? state.backupRetention;
+    state.backupSchedule = result.schedule ?? state.backupSchedule;
+    renderBackupRestore();
+    if (result.error) throw new Error(result.error);
+    setStatus(result.ran ? `Scheduled backup created: ${result.backup.fileName}.` : "No scheduled backup is due.");
   });
 }
 
@@ -1160,6 +1203,8 @@ function updateButtons() {
     "completeSetup",
     "createBackup",
     "refreshBackups",
+    "saveBackupSchedule",
+    "runDueBackups",
     "previewBackup",
     "restoreBackup",
     "cloneTemplate",
@@ -1223,6 +1268,8 @@ $("bootstrap").addEventListener("click", bootstrap);
 $("completeSetup").addEventListener("click", completeSetup);
 $("createBackup").addEventListener("click", createBackupAction);
 $("refreshBackups").addEventListener("click", refreshBackupsAction);
+$("saveBackupSchedule").addEventListener("click", saveBackupScheduleAction);
+$("runDueBackups").addEventListener("click", runDueBackupsAction);
 $("previewBackup").addEventListener("click", previewBackupAction);
 $("restoreBackup").addEventListener("click", restoreBackupAction);
 $("cloneTemplate").addEventListener("click", cloneTemplate);

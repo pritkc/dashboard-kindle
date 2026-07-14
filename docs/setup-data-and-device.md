@@ -241,6 +241,8 @@ Presets:
 
 Use **Backup / Restore** in the UI to create a downloadable state backup. To restore, paste backup JSON into the restore box, click **Preview restore**, review schema, device, artifact, and connector-secret warnings, then click **Restore**.
 
+To automate backups, enable **Scheduled backup**, choose the interval in hours, and save. **Run due** creates a scheduled backup only when the saved next-run time is due. Use `DASHBOARD_KINDLE_BACKUP_INTERVAL_SECONDS` to change the default 24-hour interval for new schedules.
+
 CLI backup and restore are also available:
 
 ```bash

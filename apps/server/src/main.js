@@ -39,6 +39,8 @@ const schedulerTickMs = Number(process.env.DASHBOARD_KINDLE_SCHEDULER_TICK_MS ??
 const defaultSnapshotHistoryLimit = 25;
 const defaultRenderArtifactLimitPerDashboard = 20;
 const defaultBackupLimit = 10;
+const defaultBackupIntervalSeconds = 24 * 60 * 60;
+const minimumBackupIntervalSeconds = 60 * 60;
 const encryptedValueMarker = "dashboard-kindle.secret.v1";
 const refreshPresets = {
   battery_saver: {
@@ -92,6 +94,7 @@ export function loadState() {
   normalizeRetention(state);
   cleanupRenderArtifacts(state);
   ensureSourceJobs(state);
+  ensureBackupJob(state);
   ensureInitialRevisions(state);
   return state;
 }
@@ -232,6 +235,18 @@ function ensureSourceJobs(state, nowMs = Date.now()) {
   }
 }
 
+function ensureBackupJob(state, nowMs = Date.now()) {
+  state.jobs = Array.isArray(state.jobs) ? state.jobs : [];
+  let job = state.jobs.find((candidate) => candidate?.type === "backup.create");
+  if (!job) {
+    job = createBackupJob(nowMs);
+    state.jobs.push(job);
+  } else {
+    normalizeBackupJob(job, nowMs);
+  }
+  return job;
+}
+
 function sourceJob(state, sourceId) {
   return (state.jobs ?? []).find((job) => job.type === "source.collect" && job.sourceId === sourceId);
 }
@@ -271,12 +286,51 @@ function normalizeSourceJob(state, job, instance, nowMs = Date.now()) {
   job.updatedAt ??= nowIso();
 }
 
+function createBackupJob(nowMs = Date.now(), overrides = {}) {
+  const intervalSeconds = normalizedBackupIntervalSeconds(overrides.intervalSeconds);
+  return {
+    id: "backup.create:default",
+    type: "backup.create",
+    enabled: overrides.enabled ?? false,
+    intervalSeconds,
+    nextRunAt: overrides.nextRunAt ?? new Date(nowMs + intervalSeconds * 1000).toISOString(),
+    lastRunAt: null,
+    lastSuccessAt: null,
+    lastErrorAt: null,
+    consecutiveFailures: 0,
+    lastError: null,
+    running: false,
+    updatedAt: nowIso()
+  };
+}
+
+function normalizeBackupJob(job, nowMs = Date.now()) {
+  job.id = "backup.create:default";
+  job.type = "backup.create";
+  job.enabled = job.enabled === true;
+  job.intervalSeconds = normalizedBackupIntervalSeconds(job.intervalSeconds);
+  job.nextRunAt ??= new Date(nowMs + job.intervalSeconds * 1000).toISOString();
+  job.lastRunAt ??= null;
+  job.lastSuccessAt ??= null;
+  job.lastErrorAt ??= null;
+  job.consecutiveFailures = Number.isFinite(Number(job.consecutiveFailures)) ? Number(job.consecutiveFailures) : 0;
+  job.lastError ??= null;
+  job.running = false;
+  job.updatedAt ??= nowIso();
+}
+
 function normalizedCollectionInterval(state, instance, requested) {
   const manifest = state.connectorManifests[instance.connectorId] ?? {};
   const minimum = Number(manifest.minimumCollectionIntervalSeconds ?? 60);
   const fallback = Number(manifest.defaultCollectionIntervalSeconds ?? 300);
   const value = Number(requested ?? fallback);
   return Math.max(minimum, Number.isFinite(value) && value > 0 ? Math.round(value) : fallback);
+}
+
+function normalizedBackupIntervalSeconds(requested) {
+  const value = Number(requested ?? process.env.DASHBOARD_KINDLE_BACKUP_INTERVAL_SECONDS ?? defaultBackupIntervalSeconds);
+  if (!Number.isFinite(value) || value < minimumBackupIntervalSeconds) return defaultBackupIntervalSeconds;
+  return Math.min(365 * 24 * 60 * 60, Math.round(value));
 }
 
 function deterministicJitterSeconds(sourceId, intervalSeconds, salt = "") {
@@ -296,6 +350,10 @@ function nextScheduledRunAt(sourceId, intervalSeconds, nowMs) {
 function nextBackoffRunAt(sourceId, intervalSeconds, failures, nowMs) {
   const backoffSeconds = Math.min(3600, intervalSeconds * 2 ** Math.min(6, Math.max(0, failures - 1)));
   return new Date(nowMs + (backoffSeconds + deterministicJitterSeconds(sourceId, intervalSeconds, `backoff:${failures}`)) * 1000).toISOString();
+}
+
+function nextBackupRunAt(intervalSeconds, nowMs) {
+  return new Date(nowMs + normalizedBackupIntervalSeconds(intervalSeconds) * 1000).toISOString();
 }
 
 function recordSourceJobSuccess(state, sourceId, nowMs = Date.now()) {
@@ -352,9 +410,41 @@ export async function runDueSourceJobs(state, options = {}) {
   return { ran: results.length, results, nextRunAt: nextSchedulerWakeAt(state) };
 }
 
+export function runDueBackupJobs(state, options = {}) {
+  const nowMs = options.nowMs ?? Date.now();
+  const job = ensureBackupJob(state, nowMs);
+  if (!job.enabled || job.running || Date.parse(job.nextRunAt) > nowMs) {
+    return { ran: 0, backup: null, schedule: publicBackupJob(job) };
+  }
+
+  job.running = true;
+  job.lastRunAt = new Date(nowMs).toISOString();
+  job.updatedAt = nowIso();
+  try {
+    job.lastSuccessAt = job.lastRunAt;
+    job.lastError = null;
+    job.lastErrorAt = null;
+    job.consecutiveFailures = 0;
+    job.nextRunAt = nextBackupRunAt(job.intervalSeconds, nowMs);
+    job.running = false;
+    job.updatedAt = nowIso();
+    const backup = createStateBackup(state);
+    return { ran: 1, backup, schedule: publicBackupJob(job) };
+  } catch (error) {
+    job.lastErrorAt = job.lastRunAt;
+    job.lastError = redactError(error);
+    job.consecutiveFailures = (job.consecutiveFailures ?? 0) + 1;
+    job.nextRunAt = nextBackupRunAt(job.intervalSeconds, nowMs);
+    job.running = false;
+    job.updatedAt = nowIso();
+    audit(state, "backup.schedule.failed", { error: job.lastError });
+    return { ran: 1, backup: null, error: job.lastError, schedule: publicBackupJob(job) };
+  }
+}
+
 function nextSchedulerWakeAt(state) {
   const timestamps = (state.jobs ?? [])
-    .filter((job) => job.type === "source.collect" && job.enabled && !job.running)
+    .filter((job) => (job.type === "source.collect" || job.type === "backup.create") && job.enabled && !job.running)
     .map((job) => Date.parse(job.nextRunAt))
     .filter(Number.isFinite);
   return timestamps.length ? new Date(Math.min(...timestamps)).toISOString() : null;
@@ -362,11 +452,13 @@ function nextSchedulerWakeAt(state) {
 
 function schedulerStatus(state) {
   ensureSourceJobs(state);
+  ensureBackupJob(state);
   return {
     nextRunAt: nextSchedulerWakeAt(state),
     jobs: state.jobs
       .filter((job) => job.type === "source.collect")
-      .map((job) => publicSourceJob(job))
+      .map((job) => publicSourceJob(job)),
+    backup: publicBackupJob(ensureBackupJob(state))
   };
 }
 
@@ -377,6 +469,36 @@ function publicSourceJob(job) {
     lastError: lastError ? redactError(lastError) : null,
     due: job.enabled && !job.running && Date.parse(job.nextRunAt) <= Date.now()
   };
+}
+
+function publicBackupJob(job) {
+  const { lastError, ...publicJob } = job;
+  return {
+    ...publicJob,
+    lastError: lastError ? redactError(lastError) : null,
+    due: job.enabled && !job.running && Date.parse(job.nextRunAt) <= Date.now()
+  };
+}
+
+function updateBackupSchedule(state, input, nowMs = Date.now()) {
+  const job = ensureBackupJob(state, nowMs);
+  if (input.enabled !== undefined) {
+    if (typeof input.enabled !== "boolean") throw httpError(400, "Backup schedule enabled must be a boolean");
+    job.enabled = input.enabled;
+  }
+  if (input.intervalSeconds !== undefined) {
+    job.intervalSeconds = normalizedBackupIntervalSeconds(input.intervalSeconds);
+  }
+  if (input.runAt !== undefined) {
+    const parsed = Date.parse(input.runAt);
+    if (!Number.isFinite(parsed)) throw httpError(400, "Backup schedule runAt must be an ISO timestamp");
+    job.nextRunAt = new Date(parsed).toISOString();
+  } else if (input.intervalSeconds !== undefined || input.enabled === true) {
+    job.nextRunAt = nextBackupRunAt(job.intervalSeconds, nowMs);
+  }
+  job.updatedAt = nowIso();
+  audit(state, "backup.schedule.updated", { enabled: job.enabled, intervalSeconds: job.intervalSeconds, nextRunAt: job.nextRunAt });
+  return publicBackupJob(job);
 }
 
 function updateSourceSchedule(state, sourceId, input, nowMs = Date.now()) {
@@ -686,6 +808,7 @@ function restoreStateFromBackup(currentState, payload) {
   normalizeRetention(restoredState);
   cleanupRenderArtifacts(restoredState);
   ensureSourceJobs(restoredState);
+  ensureBackupJob(restoredState);
   ensureInitialRevisions(restoredState);
   for (const key of Object.keys(currentState)) delete currentState[key];
   Object.assign(currentState, restoredState);
@@ -1485,12 +1608,23 @@ async function route(request, response, state) {
     return sendJson(response, 200, job);
   }
   if (request.method === "GET" && url.pathname === "/api/v1/backups") {
-    return sendJson(response, 200, { backups: listBackups(), retention: state.retention });
+    return sendJson(response, 200, { backups: listBackups(), retention: state.retention, schedule: publicBackupJob(ensureBackupJob(state)) });
   }
   if (request.method === "POST" && url.pathname === "/api/v1/backups") {
     const backup = createStateBackup(state);
     saveState(state);
-    return sendJson(response, 201, { backup, backups: listBackups(), retention: state.retention });
+    return sendJson(response, 201, { backup, backups: listBackups(), retention: state.retention, schedule: publicBackupJob(ensureBackupJob(state)) });
+  }
+  if (request.method === "PATCH" && url.pathname === "/api/v1/backups/schedule") {
+    const body = await readBody(request);
+    const schedule = updateBackupSchedule(state, body);
+    saveState(state);
+    return sendJson(response, 200, schedule);
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/backups/run-due") {
+    const result = runDueBackupJobs(state);
+    saveState(state);
+    return sendJson(response, 200, { ...result, backups: listBackups(), retention: state.retention });
   }
   if (request.method === "GET" && url.pathname.match(/^\/api\/v1\/backups\/[^/]+$/)) {
     const fileName = url.pathname.split("/")[4];
@@ -1683,6 +1817,7 @@ async function route(request, response, state) {
       checkins: state.deviceCheckins,
       artifacts: Object.values(state.renderArtifacts).map((artifact) => ({ ...artifact, imagePath: path.relative(repoPath(), artifact.imagePath) })),
       scheduler: schedulerStatus(state),
+      backupSchedule: publicBackupJob(ensureBackupJob(state)),
       auditEvents: state.auditEvents.slice(-50)
     });
   }
@@ -1706,6 +1841,7 @@ function publicState(state) {
     deviceCommands: publicDeviceCommands(state),
     deviceCheckins: state.deviceCheckins,
     scheduler: schedulerStatus(state),
+    backupSchedule: publicBackupJob(ensureBackupJob(state)),
     setup: setupStatus(state),
     pairingCodes: Object.values(state.pairingCodes ?? {}).map(({ token, ...record }) => record)
   };
@@ -1794,8 +1930,9 @@ export function startSourceScheduler(state, options = {}) {
     if (running) return;
     running = true;
     try {
-      const result = await runDueSourceJobs(state);
-      if (result.ran > 0) saveState(state);
+      const sourceResult = await runDueSourceJobs(state);
+      const backupResult = runDueBackupJobs(state);
+      if (sourceResult.ran > 0 || backupResult.ran > 0) saveState(state);
     } catch (error) {
       audit(state, "scheduler.tick.failed", { error: redactError(error) });
       saveState(state);
