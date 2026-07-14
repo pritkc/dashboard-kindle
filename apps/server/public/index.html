@@ -228,8 +228,58 @@
           </div>
         </div>
 
+        <section class="widgetBuilder">
+          <h2>Widget Builder</h2>
+          <div class="widgetGrid">
+            <label>
+              Widget
+              <select id="widgetSelect"></select>
+            </label>
+            <label>
+              Type
+              <select id="widgetType"></select>
+            </label>
+            <label>
+              Title
+              <input id="widgetTitle" type="text">
+            </label>
+            <label>
+              Source
+              <select id="widgetSource"></select>
+            </label>
+            <label>
+              Field path
+              <input id="widgetExpression" type="text" placeholder="$.metric">
+            </label>
+            <label>
+              Suffix
+              <input id="widgetSuffix" type="text" placeholder="%">
+            </label>
+            <label>
+              X
+              <input id="widgetX" type="number" min="0" step="1">
+            </label>
+            <label>
+              Y
+              <input id="widgetY" type="number" min="0" step="1">
+            </label>
+            <label>
+              Width
+              <input id="widgetW" type="number" min="24" step="1">
+            </label>
+            <label>
+              Height
+              <input id="widgetH" type="number" min="24" step="1">
+            </label>
+          </div>
+          <div class="buttonRow">
+            <button id="applyWidget">Apply widget changes</button>
+          </div>
+          <div id="widgetLayoutStatus" class="layoutStatus"></div>
+        </section>
+
         <section class="editor">
-          <h2>Dashboard draft</h2>
+          <h2>Advanced dashboard JSON</h2>
           <textarea id="definition"></textarea>
         </section>
       </section>

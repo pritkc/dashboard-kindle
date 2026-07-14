@@ -4,6 +4,7 @@ const state = {
   refreshPresets: [],
   dashboardId: "work",
   managedDeviceId: null,
+  selectedWidgetId: null,
   sourceFields: [],
   sourceSamplePayload: null,
   selectedSourceField: null,
@@ -74,6 +75,8 @@ const compatibilityMatrix = {
     warning: "Use this for simulator or custom e-ink clients, not for stock Kindle installation."
   }
 };
+
+const widgetTypes = ["text", "metric", "progress", "status", "list", "bars", "clock", "alert"];
 
 const $ = (id) => document.getElementById(id);
 
@@ -164,6 +167,7 @@ function render() {
   renderDeviceManagement();
   renderPairingDefaults();
   renderSelects();
+  renderWidgetBuilder();
   renderInspector();
   renderPreview();
 }
@@ -362,6 +366,84 @@ function renderSelects() {
   if (document.activeElement !== $("definition")) {
     $("definition").value = JSON.stringify(dashboard?.draft ?? {}, null, 2);
   }
+}
+
+function renderWidgetBuilder() {
+  const definition = draftDefinitionForUi();
+  const widgets = definition?.widgets ?? [];
+  if (!widgets.length) {
+    $("widgetSelect").innerHTML = "";
+    $("widgetType").innerHTML = widgetTypes.map((type) => `<option value="${type}">${escapeHtml(type)}</option>`).join("");
+    $("widgetLayoutStatus").innerHTML = `<div class="layoutIssue">No widgets in this dashboard.</div>`;
+    return;
+  }
+  if (!state.selectedWidgetId || !widgets.some((widget) => widget.id === state.selectedWidgetId)) {
+    state.selectedWidgetId = widgets[0].id;
+  }
+  const widget = widgets.find((item) => item.id === state.selectedWidgetId);
+  $("widgetSelect").innerHTML = widgets.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(`${item.title ?? item.id} (${item.id})`)}</option>`).join("");
+  $("widgetSelect").value = widget.id;
+  $("widgetType").innerHTML = widgetTypes.map((type) => `<option value="${type}">${escapeHtml(type)}</option>`).join("");
+  $("widgetType").value = widget.type;
+  $("widgetTitle").value = widget.title ?? "";
+  $("widgetSource").innerHTML = state.data.connectorInstances.map((source) => `<option value="${escapeHtml(source.id)}">${escapeHtml(source.name)} (${escapeHtml(source.id)})</option>`).join("");
+  $("widgetSource").value = widget.sourceId;
+  $("widgetExpression").value = widget.expression ?? "$";
+  $("widgetSuffix").value = widget.suffix ?? "";
+  $("widgetX").value = widget.x ?? 0;
+  $("widgetY").value = widget.y ?? 0;
+  $("widgetW").value = widget.w ?? 120;
+  $("widgetH").value = widget.h ?? 80;
+  renderWidgetLayoutStatus(definition);
+}
+
+function draftDefinitionForUi() {
+  try {
+    return parseDefinition();
+  } catch {
+    return currentDashboard()?.draft ?? null;
+  }
+}
+
+function renderWidgetLayoutStatus(definition) {
+  const issues = dashboardLayoutIssues(definition);
+  $("widgetLayoutStatus").innerHTML = issues.length
+    ? issues.map((issue) => `<div class="layoutIssue">${escapeHtml(issue)}</div>`).join("")
+    : `<div class="layoutOk">Layout checks passed.</div>`;
+}
+
+function dashboardLayoutIssues(definition) {
+  if (!definition?.profile || !Array.isArray(definition.widgets)) return ["Dashboard draft is not valid JSON."];
+  const issues = [];
+  const width = Number(definition.profile.width);
+  const height = Number(definition.profile.height);
+  for (const widget of definition.widgets) {
+    const x = Number(widget.x);
+    const y = Number(widget.y);
+    const w = Number(widget.w);
+    const h = Number(widget.h);
+    if (![x, y, w, h].every(Number.isFinite) || x < 0 || y < 0) {
+      issues.push(`${widget.id} has an invalid position or size.`);
+      continue;
+    }
+    if (x + w > width || y + h > height) issues.push(`${widget.id} extends outside ${width}x${height}.`);
+    if (w < 24 || h < 24) issues.push(`${widget.id} is smaller than 24x24.`);
+  }
+  for (let leftIndex = 0; leftIndex < definition.widgets.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < definition.widgets.length; rightIndex += 1) {
+      const left = definition.widgets[leftIndex];
+      const right = definition.widgets[rightIndex];
+      if (widgetsOverlap(left, right)) issues.push(`${left.id} overlaps ${right.id}.`);
+    }
+  }
+  return issues;
+}
+
+function widgetsOverlap(left, right) {
+  return Number(left.x) < Number(right.x) + Number(right.w) &&
+    Number(left.x) + Number(left.w) > Number(right.x) &&
+    Number(left.y) < Number(right.y) + Number(right.h) &&
+    Number(left.y) + Number(left.h) > Number(right.y);
 }
 
 function renderInspector() {
@@ -799,6 +881,26 @@ async function publish() {
   });
 }
 
+function applyWidgetChanges() {
+  const definition = parseDefinition();
+  const widget = definition.widgets?.find((item) => item.id === $("widgetSelect").value);
+  if (!widget) throw new Error("Select a widget to edit.");
+  widget.type = $("widgetType").value;
+  widget.title = $("widgetTitle").value.trim() || widget.id;
+  widget.sourceId = $("widgetSource").value;
+  widget.expression = $("widgetExpression").value.trim() || "$";
+  widget.x = Number($("widgetX").value);
+  widget.y = Number($("widgetY").value);
+  widget.w = Number($("widgetW").value);
+  widget.h = Number($("widgetH").value);
+  const suffix = $("widgetSuffix").value;
+  if (suffix) widget.suffix = suffix;
+  else delete widget.suffix;
+  $("definition").value = JSON.stringify(definition, null, 2);
+  renderWidgetBuilder();
+  setStatus(`Updated widget ${widget.id}. Publish to save this draft.`);
+}
+
 async function renderCurrent() {
   await withAction("Rendering processed PNG preview", async () => {
     const selectedProfile = profiles[$("profileSelect").value];
@@ -970,7 +1072,8 @@ function updateButtons() {
     "revokeDevice",
     "testSource",
     "saveSource",
-    "createPairing"
+    "createPairing",
+    "applyWidget"
   ]);
   const deviceActionButtons = new Set(["saveDevicePolicy", "refreshNextPoll", "rotateDeviceToken", "revokeDevice"]);
   const dashboardActionButtons = new Set(["renameDashboard", "duplicateDashboard", "archiveDashboard", "deleteDashboard", "exportDashboard"]);
@@ -1028,6 +1131,12 @@ $("sourceFields").addEventListener("click", handleSourceFieldAction);
 $("sourceConfigForm").addEventListener("input", syncConfigJsonFromForm);
 $("sourceConfigForm").addEventListener("change", syncConfigJsonFromForm);
 $("sourceConfig").addEventListener("blur", syncConfigFormFromJson);
+$("widgetSelect").addEventListener("change", (event) => {
+  state.selectedWidgetId = event.target.value;
+  renderWidgetBuilder();
+});
+$("applyWidget").addEventListener("click", () => withAction("Applying widget changes", async () => applyWidgetChanges()));
+$("definition").addEventListener("blur", renderWidgetBuilder);
 $("collect").addEventListener("click", collectAll);
 $("publish").addEventListener("click", publish);
 $("render").addEventListener("click", renderCurrent);
@@ -1046,6 +1155,7 @@ $("devicePreset").addEventListener("change", applySelectedPresetToForm);
 $("pairDeviceProfile").addEventListener("change", renderPairingCompatibility);
 $("dashboardSelect").addEventListener("change", (event) => {
   state.dashboardId = event.target.value;
+  state.selectedWidgetId = null;
   render();
 });
 $("profileSelect").addEventListener("change", renderCurrent);

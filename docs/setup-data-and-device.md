@@ -105,10 +105,13 @@ Recommended first sources:
 Use **Templates** in the UI for a no-code start. Current templates include blank, clock/status, work/activity, news/RSS, clock/weather, calendar-day, GitHub status, and Home Assistant status layouts. After creating a dashboard:
 
 1. Select it in the dashboard dropdown.
-2. Click **Render** to generate the processed PNG preview.
-3. Assign it to a device in **Device assignment**.
+2. Use **Widget Builder** to choose a widget and edit title, source, field path, type, size, and position.
+3. Check the layout status for overlap or out-of-bounds warnings.
+4. Click **Publish revision** when the draft is ready.
+5. Click **Render** to generate the processed PNG preview.
+6. Assign it to a device in **Device assignment**.
 
-The raw JSON editor remains available for advanced changes. Publish explicitly after editing JSON.
+The raw JSON editor remains available under **Advanced dashboard JSON** for bulk edits and fields that do not yet have visual controls. Publish explicitly after editing JSON.
 
 ## 6. Manage Dashboards
 

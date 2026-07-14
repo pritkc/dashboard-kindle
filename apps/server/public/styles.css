@@ -495,15 +495,57 @@ iframe {
 }
 
 .inspector,
-.editor {
+.editor,
+.widgetBuilder {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: white;
   padding: 14px;
 }
 
-.editor {
+.editor,
+.widgetBuilder {
   margin-top: 18px;
+}
+
+.widgetGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.widgetGrid label {
+  margin-bottom: 0;
+}
+
+.widgetGrid label:nth-child(3),
+.widgetGrid label:nth-child(4),
+.widgetGrid label:nth-child(5),
+.widgetGrid label:nth-child(6) {
+  grid-column: span 2;
+}
+
+.layoutStatus {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.layoutOk,
+.layoutIssue {
+  padding: 7px 8px;
+  border-radius: 6px;
+}
+
+.layoutOk {
+  border: 1px solid #9eb8ad;
+  background: #f2f7f4;
+}
+
+.layoutIssue {
+  border: 1px solid #d9b38c;
+  background: #fff7ef;
 }
 
 dl {
@@ -559,6 +601,17 @@ textarea {
   .shell,
   .previewRow {
     grid-template-columns: 1fr;
+  }
+
+  .widgetGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .widgetGrid label:nth-child(3),
+  .widgetGrid label:nth-child(4),
+  .widgetGrid label:nth-child(5),
+  .widgetGrid label:nth-child(6) {
+    grid-column: span 2;
   }
 
   .panel {
