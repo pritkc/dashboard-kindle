@@ -138,6 +138,22 @@ Exported JSON contains the declarative dashboard definition only. It does not in
 
 ## 7. Pair a Device
 
+Before pairing a Kindle or any phone/tablet on Wi‑Fi, bind the server to the LAN. Edit `.env`:
+
+```bash
+DASHBOARD_KINDLE_HOST=0.0.0.0
+DASHBOARD_KINDLE_ADMIN_TOKEN=<strong-token>
+DASHBOARD_KINDLE_MASTER_KEY=<long-random-value>
+```
+
+Restart with `pnpm dev`, then verify:
+
+```bash
+curl -sS http://<your-lan-ip>:8787/api/v1/health
+```
+
+`127.0.0.1` only works on the Mac itself. The Kindle must use your Mac’s LAN IP, for example `http://192.168.1.140:8787`.
+
 ### UI pairing path
 
 Use **Pair Device** in the sidebar:
@@ -145,7 +161,7 @@ Use **Pair Device** in the sidebar:
 1. Enter a device name.
 2. Select the closest screen profile.
 3. Review the compatibility panel. Kindle profiles require jailbreak and KUAL before the generated bundle can run; simulator/BYOD profiles do not.
-4. Set `Server URL` to the LAN address reachable from the device, for example `http://192.168.1.20:8787`.
+4. Set `Server URL` to the LAN address reachable from the device, for example `http://192.168.1.140:8787`.
 5. Click **Create pairing bundle**.
 6. Download the generated `dashboard-kindle-<code>.tgz`.
 

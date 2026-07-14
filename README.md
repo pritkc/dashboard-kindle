@@ -14,9 +14,26 @@ pnpm seed && pnpm dev
 
 Open `http://127.0.0.1:8787` and unlock with `dev-admin-token`.
 
-Optional: `cp .env.example .env` to override defaults. Set a strong `DASHBOARD_KINDLE_ADMIN_TOKEN` before binding to a LAN address or using Docker.
-
 `pnpm seed` checks renderer tools automatically. `rsvg-convert` renders dashboard SVG text; ImageMagick applies grayscale, palette, and PGM conversion.
+
+### LAN access for Kindle
+
+By default the server binds to `127.0.0.1`, so phones/Kindles on your Wi‑Fi cannot reach it. For LAN access:
+
+```bash
+cp .env.example .env
+# set DASHBOARD_KINDLE_HOST=0.0.0.0
+# set a strong DASHBOARD_KINDLE_ADMIN_TOKEN (required when not on loopback)
+pnpm seed && pnpm dev
+```
+
+Then check from this Mac:
+
+```bash
+curl -sS http://$(ipconfig getifaddr en0):8787/api/v1/health
+```
+
+Use that same LAN URL (for example `http://192.168.1.140:8787`) in the UI **Pair Device** Server URL field. Unlock the browser UI with the token from `.env`, not `dev-admin-token`.
 
 Useful commands:
 
