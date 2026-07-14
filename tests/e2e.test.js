@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import zlib from "node:zlib";
-import { bootstrapState, createAppServer, decryptConnectorSecretsInPlace, loadState, stateForStorage } from "../apps/server/src/main.js";
+import { spawnSync } from "node:child_process";
+import { bootstrapState, cleanupRenderArtifacts, createAppServer, decryptConnectorSecretsInPlace, loadState, stateForStorage } from "../apps/server/src/main.js";
 import { sha256 } from "../packages/domain/src/core.js";
 
 const adminHeaders = { "X-Admin-Token": "dev-admin-token" };
@@ -452,6 +455,66 @@ test("backup and restore scripts operate on state", async () => {
   for (const artifact of Object.values(state.renderArtifacts)) {
     assert.equal(fs.existsSync(artifact.imagePath), true);
   }
+});
+
+test("render artifact retention removes old files while preserving current device artifacts", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dashboard-kindle-artifacts-"));
+  const state = loadState();
+  state.retention.renderArtifactLimitPerDashboard = 2;
+  state.renderArtifacts = {};
+  state.deviceCheckins = { device1: { currentArtifactId: "artifact-old-protected" } };
+
+  for (const [index, id] of ["artifact-new", "artifact-mid", "artifact-old-remove", "artifact-old-protected"].entries()) {
+    const artifactDir = path.join(tempDir, id);
+    fs.mkdirSync(artifactDir, { recursive: true });
+    const imagePath = path.join(artifactDir, `${id}.png`);
+    const svgPath = path.join(artifactDir, `${id}.svg`);
+    const pgmPath = path.join(artifactDir, `${id}.pgm`);
+    fs.writeFileSync(imagePath, id);
+    fs.writeFileSync(svgPath, id);
+    fs.writeFileSync(pgmPath, id);
+    state.renderArtifacts[id] = {
+      id,
+      dashboardId: "work",
+      imagePath,
+      svgPath,
+      pgmPath,
+      createdAt: new Date(Date.parse("2026-07-13T12:00:00.000Z") - index * 60_000).toISOString()
+    };
+  }
+
+  const result = cleanupRenderArtifacts(state);
+  assert.deepEqual(result.artifactIds, ["artifact-old-remove"]);
+  assert.equal(state.renderArtifacts["artifact-new"] !== undefined, true);
+  assert.equal(state.renderArtifacts["artifact-mid"] !== undefined, true);
+  assert.equal(state.renderArtifacts["artifact-old-protected"] !== undefined, true);
+  assert.equal(state.renderArtifacts["artifact-old-remove"], undefined);
+  assert.equal(fs.existsSync(path.join(tempDir, "artifact-old-remove", "artifact-old-remove.png")), false);
+  assert.equal(fs.existsSync(path.join(tempDir, "artifact-old-protected", "artifact-old-protected.png")), true);
+});
+
+test("backup script prunes older backups according to retention policy", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dashboard-kindle-backups-"));
+  const backupDir = path.join(tempDir, "backups");
+  fs.mkdirSync(backupDir, { recursive: true });
+  fs.writeFileSync(path.join(tempDir, "state.json"), JSON.stringify({ retention: { backupLimit: 2 }, marker: "current" }));
+  for (const [index, name] of ["dashboard-kindle-old-a.json", "dashboard-kindle-old-b.json", "dashboard-kindle-old-c.json"].entries()) {
+    const filePath = path.join(backupDir, name);
+    fs.writeFileSync(filePath, "{}\n");
+    const mtime = new Date(Date.parse("2026-07-13T12:00:00.000Z") + index * 1000);
+    fs.utimesSync(filePath, mtime, mtime);
+  }
+
+  const result = spawnSync(process.execPath, ["scripts/backup.js"], {
+    cwd: process.cwd(),
+    env: { ...process.env, DASHBOARD_KINDLE_DATA_DIR: tempDir, DASHBOARD_KINDLE_BACKUP_LIMIT: "2" },
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const remaining = fs.readdirSync(backupDir).filter((name) => name.endsWith(".json")).sort();
+  assert.equal(remaining.length, 2);
+  assert.equal(remaining.some((name) => name.startsWith("dashboard-kindle-old-a")), false);
+  assert.equal(remaining.some((name) => name.startsWith("dashboard-kindle-20")), true);
 });
 
 async function postJson(url, body) {

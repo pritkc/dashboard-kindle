@@ -19,10 +19,14 @@ Default local values:
 * Fixtures: `data/fixtures`
 * Runtime state: `data/state.json`
 * Rendered images: `data/artifacts`
+* Backup files kept: `10`
+* Render artifacts kept per dashboard: `20`
 
 Do not commit `.env`, `data/state.json`, backups, or generated artifacts. They can contain device token hashes, local paths, rendered private dashboard content, or other machine-specific data.
 
 Set `DASHBOARD_KINDLE_MASTER_KEY` to a long random value before storing real connector credentials. The server uses it to encrypt manifest-declared connector secret fields in `data/state.json`; changing or losing it prevents those saved secrets from being decrypted.
+
+Retention defaults can be overridden with `DASHBOARD_KINDLE_BACKUP_LIMIT`, `DASHBOARD_KINDLE_RENDER_ARTIFACT_LIMIT_PER_DASHBOARD`, and `DASHBOARD_KINDLE_SNAPSHOT_HISTORY_LIMIT`.
 
 Install renderer dependencies:
 

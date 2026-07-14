@@ -157,7 +157,9 @@ export function defaultState() {
     snapshotHistory: {},
     sourceHealth: {},
     retention: {
-      snapshotHistoryLimit: 25
+      snapshotHistoryLimit: 25,
+      renderArtifactLimitPerDashboard: 20,
+      backupLimit: 10
     },
     dashboards: seedDashboards(),
     dashboardRevisions: {},

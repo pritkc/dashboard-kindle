@@ -36,6 +36,8 @@ const adminCookieName = "dashboard_kindle_admin";
 const dashboardWidgetTypes = new Set(["clock", "metric", "progress", "list", "bars", "status", "alert", "text"]);
 const schedulerTickMs = Number(process.env.DASHBOARD_KINDLE_SCHEDULER_TICK_MS ?? 5000);
 const defaultSnapshotHistoryLimit = 25;
+const defaultRenderArtifactLimitPerDashboard = 20;
+const defaultBackupLimit = 10;
 const encryptedValueMarker = "dashboard-kindle.secret.v1";
 const refreshPresets = {
   battery_saver: {
@@ -84,7 +86,10 @@ export function loadState() {
   state.pairingCodes ??= {};
   state.deviceCommands ??= {};
   state.setup ??= { completed: false, completedSteps: [] };
+  state.auditEvents = Array.isArray(state.auditEvents) ? state.auditEvents : [];
   normalizeSnapshotHistory(state);
+  normalizeRetention(state);
+  cleanupRenderArtifacts(state);
   ensureSourceJobs(state);
   ensureInitialRevisions(state);
   return state;
@@ -456,6 +461,33 @@ function normalizedSnapshotHistoryLimit(state) {
   return Math.min(500, Math.round(requested));
 }
 
+function normalizeRetention(state) {
+  state.retention = state.retention && typeof state.retention === "object" && !Array.isArray(state.retention)
+    ? state.retention
+    : {};
+  state.retention.snapshotHistoryLimit = normalizedSnapshotHistoryLimit(state);
+  state.retention.renderArtifactLimitPerDashboard = normalizedRetentionNumber(
+    state.retention.renderArtifactLimitPerDashboard,
+    process.env.DASHBOARD_KINDLE_RENDER_ARTIFACT_LIMIT_PER_DASHBOARD,
+    defaultRenderArtifactLimitPerDashboard,
+    1,
+    1000
+  );
+  state.retention.backupLimit = normalizedRetentionNumber(
+    state.retention.backupLimit,
+    process.env.DASHBOARD_KINDLE_BACKUP_LIMIT,
+    defaultBackupLimit,
+    1,
+    1000
+  );
+}
+
+function normalizedRetentionNumber(stateValue, envValue, fallback, minimum, maximum) {
+  const requested = Number(envValue ?? stateValue ?? fallback);
+  if (!Number.isFinite(requested) || requested < minimum) return fallback;
+  return Math.min(maximum, Math.round(requested));
+}
+
 function recordSourceSnapshot(state, sourceId, snapshot) {
   normalizeSnapshotHistory(state);
   state.snapshots[sourceId] = snapshot;
@@ -503,7 +535,40 @@ export function renderDashboard(state, dashboardId, profileOverrides = {}) {
   const artifact = writeRenderArtifact({ definition, revision, snapshots, profile, dataDir });
   state.renderArtifacts[artifact.id] = artifact;
   audit(state, "dashboard.rendered", { dashboardId, revisionId: revision.id, artifactId: artifact.id });
+  cleanupRenderArtifacts(state);
   return artifact;
+}
+
+export function cleanupRenderArtifacts(state) {
+  normalizeRetention(state);
+  state.renderArtifacts ??= {};
+  const protectedIds = new Set([
+    ...Object.values(state.deviceCheckins ?? {}).map((checkin) => checkin?.currentArtifactId).filter(Boolean)
+  ]);
+  const removed = [];
+  const byDashboard = new Map();
+  for (const artifact of Object.values(state.renderArtifacts)) {
+    if (!artifact?.id || !artifact.dashboardId) continue;
+    if (!byDashboard.has(artifact.dashboardId)) byDashboard.set(artifact.dashboardId, []);
+    byDashboard.get(artifact.dashboardId).push(artifact);
+  }
+  for (const artifacts of byDashboard.values()) {
+    artifacts.sort((left, right) => Date.parse(right.createdAt ?? 0) - Date.parse(left.createdAt ?? 0));
+    const unprotected = artifacts.filter((artifact) => !protectedIds.has(artifact.id));
+    for (const artifact of unprotected.slice(state.retention.renderArtifactLimitPerDashboard)) {
+      deleteRenderArtifactFiles(artifact);
+      delete state.renderArtifacts[artifact.id];
+      removed.push(artifact.id);
+    }
+  }
+  if (removed.length) audit(state, "retention.render_artifacts.cleaned", { removedCount: removed.length, artifactIds: removed });
+  return { removedCount: removed.length, artifactIds: removed };
+}
+
+function deleteRenderArtifactFiles(artifact) {
+  for (const filePath of [artifact?.imagePath, artifact?.svgPath, artifact?.pgmPath]) {
+    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
 }
 
 function snapshotsForDefinition(state, definition) {
@@ -853,9 +918,7 @@ function deleteDashboard(state, dashboardId) {
     .map(([artifactId]) => artifactId);
   for (const artifactId of artifactIds) {
     const artifact = state.renderArtifacts[artifactId];
-    for (const filePath of [artifact.imagePath, artifact.svgPath, artifact.pgmPath]) {
-      if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    }
+    deleteRenderArtifactFiles(artifact);
     delete state.renderArtifacts[artifactId];
   }
   for (const revisionId of revisionIds) delete state.dashboardRevisions[revisionId];
@@ -1045,6 +1108,7 @@ function getDeviceDisplay(state, request) {
 }
 
 function audit(state, action, details) {
+  state.auditEvents = Array.isArray(state.auditEvents) ? state.auditEvents : [];
   state.auditEvents.push({ id: sha256(`${Date.now()}:${action}:${state.auditEvents.length}`).slice(0, 16), at: nowIso(), action, details });
   state.auditEvents = state.auditEvents.slice(-500);
 }
