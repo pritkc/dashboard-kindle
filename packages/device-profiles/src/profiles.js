@@ -70,7 +70,7 @@ export function resolveProfile(capabilities = {}, overrides = {}) {
         width: capabilities.width ?? 800,
         height: capabilities.height ?? 600,
         orientation: capabilities.orientation ?? "landscape",
-        safeArea: { top: 12, right: 12, bottom: 12, left: 12 },
+        safeArea: { top: 12, right: 12, bottom: 12, left: 12, ...(capabilities.safeArea ?? {}) },
         palette: "monochrome",
         outputFormat: "png",
         dithering: "threshold",

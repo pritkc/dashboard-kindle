@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { hashPayload, repoPath, selectPath, sha256 } from "../../domain/src/core.js";
 import { resolveProfile } from "../../device-profiles/src/profiles.js";
 
-export const RENDERER_VERSION = "dashboard-kindle-renderer-0.1.4";
+export const RENDERER_VERSION = "dashboard-kindle-renderer-0.1.5";
 
 export function renderFingerprint(revision, snapshots, profile) {
   const snapshotHashes = Object.fromEntries(Object.entries(snapshots).map(([id, snapshot]) => [id, snapshot?.payloadHash ?? "missing"]));
@@ -35,39 +35,68 @@ export function renderDashboardSvg(definition, snapshots, requestedProfile = {})
   const background = profile.invert ? "#111" : "#fff";
   const foreground = profile.invert ? "#fff" : "#111";
   const muted = profile.invert ? "#bbb" : "#555";
-  const body = definition.widgets.map((widget) => renderWidget(widget, snapshots, { foreground, muted, background })).join("\n");
+  const diagnostics = [];
+  const layoutBox = layoutBounds(definition, profile, width, height);
+  const body = definition.widgets.map((widget, index) => renderWidget(widget, snapshots, {
+    foreground,
+    muted,
+    background,
+    diagnostics,
+    layoutBox,
+    clipId: `widget-clip-${escapeId(widget.id ?? index)}`
+  })).join("\n");
+  const rotation = rotationTransform(profile, width, height);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <rect width="100%" height="100%" fill="${background}"/>
   <style>
-    .title{font:700 18px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:${muted}}
-    .value{font:800 42px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:${foreground}}
-    .text{font:500 22px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:${foreground}}
-    .small{font:500 15px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:${muted}}
+    .title{font:700 18px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans","Arial Unicode MS",sans-serif;fill:${muted}}
+    .value{font:800 42px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans","Arial Unicode MS",sans-serif;fill:${foreground}}
+    .text{font:500 22px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans","Arial Unicode MS",sans-serif;fill:${foreground}}
+    .small{font:500 15px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans","Arial Unicode MS",sans-serif;fill:${muted}}
   </style>
+  <g${rotation ? ` transform="${rotation}"` : ""}>
   ${body}
+  </g>
   <text x="${width - 14}" y="${height - 12}" text-anchor="end" class="small">dashboard-kindle</text>
 </svg>`;
 }
 
-function renderWidget(widget, snapshots, palette) {
+export function renderDashboardDiagnostics(definition, snapshots, requestedProfile = {}) {
+  const profile = resolveProfile(definition.profile ?? {}, requestedProfile);
+  const diagnostics = [];
+  const layoutBox = layoutBounds(definition, profile, Number(profile.width), Number(profile.height));
+  definition.widgets.forEach((widget, index) => renderWidget(widget, snapshots, {
+    foreground: "#111",
+    muted: "#555",
+    background: "#fff",
+    diagnostics,
+    layoutBox,
+    clipId: `widget-clip-${escapeId(widget.id ?? index)}`
+  }));
+  return diagnostics;
+}
+
+function renderWidget(widget, snapshots, context) {
+  const palette = context;
   const snapshot = snapshots[widget.sourceId];
   const payload = snapshot?.payload;
   const data = snapshot?.state === "error" ? undefined : selectPath(payload, widget.expression);
-  const x = Number(widget.x);
-  const y = Number(widget.y);
-  const w = Number(widget.w);
-  const h = Number(widget.h);
+  const originalBox = { x: Number(widget.x), y: Number(widget.y), w: Number(widget.w), h: Number(widget.h) };
+  const { box, clipped } = clippedBox(originalBox, context.layoutBox);
+  if (clipped) context.diagnostics.push({ widgetId: widget.id, code: "widget-clipped", message: `Widget ${widget.id} was clipped to the renderable bounds.` });
   const title = escapeXml(widget.title ?? widget.type);
   const stale = snapshot && snapshot.validUntil && Date.parse(snapshot.validUntil) < Date.now();
   const stateLabel = !snapshot ? "missing" : stale ? "stale" : snapshot.state;
+  const stateMessage = widgetStateMessage(snapshot, stale);
   const chrome = `<g>
-    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="none" stroke="${palette.foreground}" stroke-width="2"/>
-    <text x="${x + 14}" y="${y + 28}" class="title">${title}</text>
-    <text x="${x + w - 12}" y="${y + 24}" text-anchor="end" class="small">${escapeXml(stateLabel)}</text>
+    <clipPath id="${context.clipId}"><rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="4"/></clipPath>
+    <rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="4" fill="none" stroke="${palette.foreground}" stroke-width="2"/>
+    <text x="${box.x + 14}" y="${box.y + 28}" class="title">${title}</text>
+    <text x="${box.x + box.w - 12}" y="${box.y + 24}" text-anchor="end" class="small">${escapeXml(stateLabel)}</text>
   </g>`;
-  const content = renderWidgetContent(widget, data, { x, y, w, h }, palette);
-  return `${chrome}\n${content}`;
+  const content = stateMessage ? renderStateMessage(stateMessage, box, palette) : renderWidgetContent(widget, data, box, palette);
+  return `${chrome}\n<g clip-path="url(#${context.clipId})">${content}</g>`;
 }
 
 function renderWidgetContent(widget, data, box, palette) {
@@ -119,14 +148,15 @@ function renderProgress(data, { x, y, w, h }, palette) {
   <rect x="${x + 16}" y="${barY}" width="${Math.round(barW * pct)}" height="16" fill="${palette.foreground}"/>`;
 }
 
-function renderList(data, { x, y, w }) {
-  const rows = Array.isArray(data) ? data.slice(0, 7) : [];
+function renderList(data, { x, y, w, h }) {
+  const maxRows = Math.max(1, Math.floor((h - 56) / 28));
+  const rows = Array.isArray(data) ? data.slice(0, maxRows) : [];
   if (rows.length === 0) return renderText("No rows", { x, y, w, h: 80 });
   return rows.map((row, index) => {
     const label = row.name ?? row.title ?? row.summary ?? row.entityId ?? row.date ?? row.startsAt ?? String(row);
     const value = row.minutes !== undefined ? `${row.minutes} min` : row.highF !== undefined && row.lowF !== undefined ? `${row.lowF}-${row.highF}F` : row.number !== undefined ? `#${row.number}` : row.state !== undefined ? `${row.state}${row.unit ?? ""}` : row.value ?? row.location ?? row.author ?? "";
-    return `<text x="${x + 16}" y="${y + 62 + index * 28}" class="text">${escapeXml(label)}</text>
-    <text x="${x + w - 18}" y="${y + 62 + index * 28}" text-anchor="end" class="small">${escapeXml(value)}</text>`;
+    return `<text x="${x + 16}" y="${y + 62 + index * 28}" class="text">${escapeXml(truncateText(label, Math.floor((w - 110) / 12)))}</text>
+    <text x="${x + w - 18}" y="${y + 62 + index * 28}" text-anchor="end" class="small">${escapeXml(truncateText(value, 18))}</text>`;
   }).join("\n");
 }
 
@@ -161,11 +191,12 @@ function renderText(data, box) {
   return renderWrappedText(String(data ?? "Missing data"), box, 24);
 }
 
-function renderWrappedText(value, { x, y, w }, size) {
-  const words = String(value).split(/\s+/);
+function renderWrappedText(value, { x, y, w, h = 180 }, size) {
+  const words = String(value).split(/\s+/).flatMap((word) => splitLongWord(word, Math.max(8, Math.floor((w - 28) / (size * 0.55)))));
   const lines = [];
   let line = "";
   const maxChars = Math.max(8, Math.floor((w - 28) / (size * 0.55)));
+  const maxLines = Math.max(1, Math.floor((h - 48) / (size + 6)));
   for (const word of words) {
     const candidate = line ? `${line} ${word}` : word;
     if (candidate.length > maxChars && line) {
@@ -176,7 +207,9 @@ function renderWrappedText(value, { x, y, w }, size) {
     }
   }
   if (line) lines.push(line);
-  return lines.slice(0, 5).map((text, index) => `<text x="${x + 16}" y="${y + 62 + index * (size + 6)}" class="text" font-size="${size}">${escapeXml(text)}</text>`).join("\n");
+  const visible = lines.slice(0, maxLines);
+  if (lines.length > visible.length) visible[visible.length - 1] = truncateText(visible[visible.length - 1], Math.max(1, maxChars - 1));
+  return visible.map((text, index) => `<text x="${x + 16}" y="${y + 62 + index * (size + 6)}" class="text" font-size="${size}">${escapeXml(text)}</text>`).join("\n");
 }
 
 function formatValue(value, suffix) {
@@ -194,6 +227,68 @@ function escapeXml(value) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function layoutBounds(definition, profile, width, height) {
+  const safeArea = profile.safeArea ?? {};
+  if (definition.layout?.useSafeArea === true || profile.enforceSafeArea === true) {
+    const left = Number(safeArea.left ?? 0);
+    const top = Number(safeArea.top ?? 0);
+    const right = Number(safeArea.right ?? 0);
+    const bottom = Number(safeArea.bottom ?? 0);
+    return { x: left, y: top, w: Math.max(1, width - left - right), h: Math.max(1, height - top - bottom) };
+  }
+  return { x: 0, y: 0, w: width, h: height };
+}
+
+function clippedBox(box, bounds) {
+  const x = Math.max(bounds.x, box.x);
+  const y = Math.max(bounds.y, box.y);
+  const right = Math.min(bounds.x + bounds.w, box.x + box.w);
+  const bottom = Math.min(bounds.y + bounds.h, box.y + box.h);
+  const clipped = x !== box.x || y !== box.y || right !== box.x + box.w || bottom !== box.y + box.h;
+  return {
+    clipped,
+    box: { x, y, w: Math.max(1, right - x), h: Math.max(1, bottom - y) }
+  };
+}
+
+function widgetStateMessage(snapshot, stale) {
+  if (!snapshot) return "Missing source data";
+  if (snapshot.state === "error") return snapshot.diagnostics?.error ?? snapshot.diagnostics?.message ?? "Source error";
+  if (stale && snapshot.payload === undefined) return "Stale source data";
+  return null;
+}
+
+function renderStateMessage(message, box, palette) {
+  return `<rect x="${box.x + 14}" y="${box.y + 44}" width="${Math.max(1, box.w - 28)}" height="${Math.max(1, box.h - 58)}" fill="none" stroke="${palette.muted}" stroke-width="2" stroke-dasharray="4 4"/>
+  ${renderWrappedText(message, { ...box, y: box.y + 2, h: box.h - 8 }, 20)}`;
+}
+
+function truncateText(value, maxChars) {
+  const text = String(value ?? "");
+  const limit = Math.max(1, maxChars);
+  return text.length > limit ? `${text.slice(0, Math.max(1, limit - 3))}...` : text;
+}
+
+function splitLongWord(word, maxChars) {
+  if (word.length <= maxChars) return [word];
+  const chunks = [];
+  for (let index = 0; index < word.length; index += maxChars) chunks.push(word.slice(index, index + maxChars));
+  return chunks;
+}
+
+function rotationTransform(profile, width, height) {
+  const degrees = Number(profile.rotationDegrees ?? profile.rotation ?? 0);
+  const normalized = ((degrees % 360) + 360) % 360;
+  if (normalized === 90) return `rotate(90 ${width / 2} ${height / 2}) translate(${(height - width) / 2} ${(height - width) / 2})`;
+  if (normalized === 180) return `rotate(180 ${width / 2} ${height / 2})`;
+  if (normalized === 270) return `rotate(270 ${width / 2} ${height / 2}) translate(${(width - height) / 2} ${(width - height) / 2})`;
+  return "";
+}
+
+function escapeId(value) {
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, "-");
 }
 
 export function renderHtml(definition, snapshots, profile) {
