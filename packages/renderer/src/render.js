@@ -6,6 +6,19 @@ import { resolveProfile } from "../../device-profiles/src/profiles.js";
 
 export const RENDERER_VERSION = "dashboard-kindle-renderer-0.1.5";
 
+export const widgetRenderers = {
+  clock: (widget, data, box) => renderClock(box),
+  metric: (widget, data, box) => renderMetric(data, widget.suffix ?? "", box),
+  progress: (widget, data, box, palette) => renderProgress(data, box, palette),
+  list: (widget, data, box) => renderList(data, box),
+  bars: (widget, data, box, palette) => renderBars(data, box, palette),
+  status: (widget, data, box) => renderStatus(data, box),
+  alert: (widget, data, box, palette) => renderAlert(data, box, palette),
+  text: (widget, data, box) => renderText(data, box)
+};
+
+export const widgetTypes = Object.freeze(Object.keys(widgetRenderers));
+
 export function renderFingerprint(revision, snapshots, profile) {
   const snapshotHashes = Object.fromEntries(Object.entries(snapshots).map(([id, snapshot]) => [id, snapshot?.payloadHash ?? "missing"]));
   const hasClockWidget = revision.definition.widgets.some((widget) => widget.type === "clock");
@@ -106,26 +119,8 @@ function renderWidget(widget, snapshots, context) {
 }
 
 function renderWidgetContent(widget, data, box, palette) {
-  switch (widget.type) {
-    case "clock":
-      return renderClock(box);
-    case "metric":
-      return renderMetric(data, widget.suffix ?? "", box);
-    case "progress":
-      return renderProgress(data, box, palette);
-    case "list":
-      return renderList(data, box);
-    case "bars":
-      return renderBars(data, box, palette);
-    case "status":
-      return renderStatus(data, box);
-    case "alert":
-      return renderAlert(data, box, palette);
-    case "text":
-      return renderText(data, box);
-    default:
-      return renderText(data, box);
-  }
+  const renderer = widgetRenderers[widget.type] ?? widgetRenderers.text;
+  return renderer(widget, data, box, palette);
 }
 
 function renderClock({ x, y, w, h }) {

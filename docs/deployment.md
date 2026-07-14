@@ -43,3 +43,18 @@ pnpm agent:uninstall:macos
 ```
 
 Agent configuration and logs are intentionally left in `~/.dashboard-kindle-agent` after uninstall. See [agent.md](agent.md) for privacy controls and allowlist settings.
+
+Run `node apps/agent/src/main.js status` to verify the normalized config, fixture connector availability, and allowlist counts before switching the agent to production local collection.
+
+## Build Artifacts
+
+```bash
+pnpm build
+```
+
+The build verifies required runtime files and stages two unsigned artifacts under `data/artifacts`:
+
+* `dashboard-kindle-kual`: Kindle KUAL extension directory for jailbroken Kindle installs.
+* `dashboard-kindle-local-launcher`: local-agent launcher directory with macOS LaunchAgent install/uninstall scripts and a manifest of reproducible commands.
+
+Signed macOS or Windows installers require signing credentials and installer tooling that are intentionally not stored in this repository.

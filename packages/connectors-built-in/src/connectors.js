@@ -3,6 +3,25 @@ import { createSnapshot, isPrivateNetworkUrl, readJson, repoPath } from "../../d
 
 const OUTPUT_LIMIT_BYTES = 512 * 1024;
 
+export const connectorCollectors = {
+  "static.manual": async (instance) => instance.config.payload ?? {},
+  "codexbar.usage": collectCodexBar,
+  "activitywatch.summary": collectActivityWatch,
+  "http.json": collectHttpJson,
+  "webhook.json": async (instance) => instance.config.latestPayload ?? instance.config.initialPayload ?? {},
+  "file.json": async (instance) => readJson(restrictedPath(instance.config.path), {}),
+  "file.csv": async (instance) => ({ rows: parseCsv(fs.readFileSync(restrictedPath(instance.config.path), "utf8")) }),
+  "rss.atom": collectFeed,
+  "weather.open-meteo": collectWeather,
+  "calendar.ics": collectCalendar,
+  "github.repo": collectGitHubRepo,
+  "homeassistant.states": collectHomeAssistantStates,
+  "local.command.json": async () => ({
+    status: "blocked",
+    reason: "Command execution is agent-gated in this build. Configure an allowlist before enabling production commands."
+  })
+};
+
 export async function collectConnector(instance, options = {}) {
   const started = Date.now();
   const payload = await collectPayload(instance, options);
@@ -14,39 +33,9 @@ export async function collectConnector(instance, options = {}) {
 }
 
 async function collectPayload(instance, options) {
-  switch (instance.connectorId) {
-    case "static.manual":
-      return instance.config.payload ?? {};
-    case "codexbar.usage":
-      return collectCodexBar(instance, options);
-    case "activitywatch.summary":
-      return collectActivityWatch(instance, options);
-    case "http.json":
-      return collectHttpJson(instance);
-    case "webhook.json":
-      return instance.config.latestPayload ?? instance.config.initialPayload ?? {};
-    case "file.json":
-      return readJson(restrictedPath(instance.config.path), {});
-    case "file.csv":
-      return { rows: parseCsv(fs.readFileSync(restrictedPath(instance.config.path), "utf8")) };
-    case "rss.atom":
-      return collectFeed(instance);
-    case "weather.open-meteo":
-      return collectWeather(instance);
-    case "calendar.ics":
-      return collectCalendar(instance);
-    case "github.repo":
-      return collectGitHubRepo(instance);
-    case "homeassistant.states":
-      return collectHomeAssistantStates(instance);
-    case "local.command.json":
-      return {
-        status: "blocked",
-        reason: "Command execution is agent-gated in this build. Configure an allowlist before enabling production commands."
-      };
-    default:
-      throw new Error(`Unknown connector ${instance.connectorId}`);
-  }
+  const collector = connectorCollectors[instance.connectorId];
+  if (!collector) throw new Error(`Unknown connector ${instance.connectorId}`);
+  return collector(instance, options);
 }
 
 async function collectCodexBar(instance) {

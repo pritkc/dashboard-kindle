@@ -14,7 +14,7 @@ import {
   sha256
 } from "../../../packages/domain/src/core.js";
 import { collectConnector } from "../../../packages/connectors-built-in/src/connectors.js";
-import { renderFingerprint, renderHtml, writeRenderArtifact } from "../../../packages/renderer/src/render.js";
+import { renderFingerprint, renderHtml, widgetTypes, writeRenderArtifact } from "../../../packages/renderer/src/render.js";
 import { createDeviceToken, hashDeviceToken, parseBearer, verifyDeviceToken, buildDisplayHeaders } from "../../../packages/device-protocol/src/protocol.js";
 import { resolveProfile } from "../../../packages/device-profiles/src/profiles.js";
 import { calculateWakeDecision } from "../../../packages/scheduling/src/scheduling.js";
@@ -32,7 +32,7 @@ const loopbackHost = host === "127.0.0.1" || host === "localhost" || host === ":
 const adminToken = process.env.DASHBOARD_KINDLE_ADMIN_TOKEN ?? (loopbackHost ? "dev-admin-token" : "");
 const masterKey = process.env.DASHBOARD_KINDLE_MASTER_KEY ?? (loopbackHost ? "dev-only-change-me" : "");
 const adminCookieName = "dashboard_kindle_admin";
-const dashboardWidgetTypes = new Set(["clock", "metric", "progress", "list", "bars", "status", "alert", "text"]);
+const dashboardWidgetTypes = new Set(widgetTypes);
 const schedulerTickMs = Number(process.env.DASHBOARD_KINDLE_SCHEDULER_TICK_MS ?? 5000);
 const defaultSnapshotHistoryLimit = 25;
 const defaultRenderArtifactLimitPerDashboard = 20;

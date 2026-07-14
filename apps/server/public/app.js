@@ -80,7 +80,17 @@ const compatibilityMatrix = {
   }
 };
 
-const widgetTypes = ["text", "metric", "progress", "status", "list", "bars", "clock", "alert"];
+const widgetTypeRegistry = [
+  { id: "text", label: "text" },
+  { id: "metric", label: "metric" },
+  { id: "progress", label: "progress" },
+  { id: "status", label: "status" },
+  { id: "list", label: "list" },
+  { id: "bars", label: "bars" },
+  { id: "clock", label: "clock" },
+  { id: "alert", label: "alert" }
+];
+const widgetTypes = widgetTypeRegistry.map((item) => item.id);
 
 const $ = (id) => document.getElementById(id);
 

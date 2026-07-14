@@ -54,7 +54,7 @@ The development UI starts with fixture-backed CodexBar, ActivityWatch, HTTP JSON
 
 For guided setup, data-source configuration, device pairing, simulator usage, and Kindle KUAL installation, see [docs/setup-data-and-device.md](docs/setup-data-and-device.md).
 
-For Mac-local CodexBar and ActivityWatch fixture collection, see [docs/agent.md](docs/agent.md). `pnpm agent:install:macos` installs a user LaunchAgent and `pnpm agent:uninstall:macos` removes it.
+For Mac-local CodexBar and ActivityWatch fixture collection, see [docs/agent.md](docs/agent.md). `pnpm agent:install:macos` installs a user LaunchAgent and `pnpm agent:uninstall:macos` removes it. `pnpm build` also stages an unsigned local launcher under `data/artifacts/dashboard-kindle-local-launcher`; signed desktop installers require external signing credentials.
 
 ## Device Flow
 

@@ -8,6 +8,12 @@ Run once in the foreground:
 pnpm agent:dev
 ```
 
+Check normalized configuration and fixture connector status:
+
+```bash
+node apps/agent/src/main.js status
+```
+
 Install as a macOS LaunchAgent:
 
 ```bash
@@ -48,6 +54,19 @@ The default config is:
 
 Keep `redactActivityWatchWindowTitles` enabled unless you explicitly need raw titles for a private local dashboard. Command and file connectors must be allowlisted before production local collection is enabled.
 
+Allowlist entries are exact strings after normalization. Add only commands and files that the dashboard needs, and prefer stable absolute paths:
+
+```json
+{
+  "allowlists": {
+    "commands": ["/usr/bin/uptime"],
+    "files": ["/Users/you/.dashboard-kindle/status.json"]
+  }
+}
+```
+
+`disabledConnectors` accepts connector IDs such as `codexbar.usage` or `activitywatch.summary`. The status command reports allowlist counts and whether fixture-backed local connectors are available; it does not print raw ActivityWatch window titles.
+
 ## LaunchAgent Behavior
 
 The installed service runs:
@@ -57,3 +76,7 @@ node apps/agent/src/main.js daemon
 ```
 
 It writes fixture-safe status snapshots to the agent log directory at a regular interval. It does not open an inbound network port.
+
+## Unsigned Launcher Artifact
+
+`pnpm build` stages an unsigned local launcher at `data/artifacts/dashboard-kindle-local-launcher`. It contains the agent entrypoint, macOS install/uninstall scripts, documentation, and a `manifest.json` with reproducible commands. Signed macOS or Windows installers are not produced by this repository because code-signing credentials are not present.
